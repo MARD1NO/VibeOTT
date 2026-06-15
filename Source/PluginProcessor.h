@@ -38,24 +38,12 @@ public:
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 private:
-    MultibandCompressor compressor;
-    juce::AudioBuffer<float> dryBuffer;
+    OTTMultibandCompressor compressor;
 
     std::atomic<float>* depthParam = nullptr;
-    std::atomic<float>* mixParam = nullptr;
-    std::atomic<float>* crossoverLowMidParam = nullptr;
-    std::atomic<float>* crossoverMidHighParam = nullptr;
-
-    std::atomic<float>* upThresholdParam = nullptr;
-    std::atomic<float>* upRatioParam = nullptr;
-    std::atomic<float>* upAttackParam = nullptr;
-    std::atomic<float>* upReleaseParam = nullptr;
-
-    std::atomic<float>* downThresholdParam = nullptr;
-    std::atomic<float>* downRatioParam = nullptr;
-    std::atomic<float>* downAttackParam = nullptr;
-    std::atomic<float>* downReleaseParam = nullptr;
-
+    std::atomic<float>* timeParam = nullptr;
+    std::atomic<float>* upwardRatioParam = nullptr;
+    std::atomic<float>* downwardRatioParam = nullptr;
     std::atomic<float>* lowGainParam = nullptr;
     std::atomic<float>* midGainParam = nullptr;
     std::atomic<float>* highGainParam = nullptr;

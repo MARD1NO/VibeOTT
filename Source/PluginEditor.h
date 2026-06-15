@@ -32,18 +32,9 @@ private:
     };
 
     Knob depthSlider;
-    Knob mixSlider;
-
-    Knob upThresholdSlider;
-    Knob upRatioSlider;
-    Knob upAttackSlider;
-    Knob upReleaseSlider;
-
-    Knob downThresholdSlider;
-    Knob downRatioSlider;
-    Knob downAttackSlider;
-    Knob downReleaseSlider;
-
+    Knob timeSlider;
+    Knob upwardRatioSlider;
+    Knob downwardRatioSlider;
     Knob lowGainSlider;
     Knob midGainSlider;
     Knob highGainSlider;
