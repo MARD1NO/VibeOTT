@@ -30,13 +30,13 @@ public:
     {
         sampleRate = spec.sampleRate;
 
-        for (int ch = 0; ch < 2; ++ch)
-        {
-            lowPass[ch].prepare(spec);
-            highPass[ch].prepare(spec);
-            midLowPass[ch].prepare(spec);
-            midHighPass[ch].prepare(spec);
-        }
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        lowPass[static_cast<size_t>(ch)].prepare(spec);
+        highPass[static_cast<size_t>(ch)].prepare(spec);
+        midLowPass[static_cast<size_t>(ch)].prepare(spec);
+        midHighPass[static_cast<size_t>(ch)].prepare(spec);
+    }
 
         for (auto& comp : compressors)
         {
@@ -63,7 +63,7 @@ public:
 
     void setDepth(float d) { depth = d; }
 
-    BandCompressor& getBand(int band) { return compressors[band]; }
+    BandCompressor& getBand(int band) { return compressors[static_cast<size_t>(band)]; }
 
     void process(juce::AudioBuffer<float>& buffer)
     {
@@ -74,28 +74,22 @@ public:
         juce::AudioBuffer<float> midBand(numChannels, numSamples);
         juce::AudioBuffer<float> highBand(numChannels, numSamples);
 
-        for (int ch = 0; ch < numChannels; ++ch)
         {
-            auto* input = buffer.getReadPointer(ch);
-            auto* low = lowBand.getWritePointer(ch);
-            auto* mid = midBand.getWritePointer(ch);
-            auto* high = highBand.getWritePointer(ch);
-            const int chIdx = juce::jmin(ch, 1);
+            juce::dsp::AudioBlock<float> inputBlock(buffer);
+            juce::dsp::AudioBlock<float> lowBlock(lowBand);
+            juce::dsp::AudioBlock<float> midBlock(midBand);
+            juce::dsp::AudioBlock<float> highBlock(highBand);
 
-            juce::dsp::AudioBlock<float> inputBlock(const_cast<float*>(input), 1, numSamples);
-            juce::dsp::AudioBlock<float> lowBlock(low, 1, numSamples);
-            juce::dsp::AudioBlock<float> midBlock(mid, 1, numSamples);
-            juce::dsp::AudioBlock<float> highBlock(high, 1, numSamples);
-
+            const int chIdx = 0;
             juce::dsp::ProcessContextNonReplacing<float> lowContext(inputBlock, lowBlock);
             juce::dsp::ProcessContextNonReplacing<float> highContext(inputBlock, highBlock);
 
             lowPass[chIdx].process(lowContext);
             highPass[chIdx].process(highContext);
 
-            juce::dsp::AudioBlock<float> midInBlock(const_cast<float*>(high), 1, numSamples);
-            juce::dsp::ProcessContextNonReplacing<float> midLowContext(midInBlock, midBlock);
-            juce::dsp::ProcessContextNonReplacing<float> midHighContext(midInBlock, highBlock);
+            juce::dsp::AudioBlock<float> highBandBlock(highBand);
+            juce::dsp::ProcessContextNonReplacing<float> midLowContext(highBandBlock, midBlock);
+            juce::dsp::ProcessContextNonReplacing<float> midHighContext(highBandBlock, highBlock);
 
             midLowPass[chIdx].process(midLowContext);
             midHighPass[chIdx].process(midHighContext);
@@ -103,7 +97,7 @@ public:
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
-            const int chIdx = juce::jmin(ch, 1);
+            const size_t chIdx = static_cast<size_t>(juce::jmin(ch, 1));
 
             processBand(lowBand, ch, compressors[0], chIdx);
             processBand(midBand, ch, compressors[1], chIdx);
@@ -121,7 +115,7 @@ public:
 
     void reset()
     {
-        for (int ch = 0; ch < 2; ++ch)
+        for (size_t ch = 0; ch < 2; ++ch)
         {
             lowPass[ch].reset();
             highPass[ch].reset();
@@ -140,7 +134,7 @@ public:
 private:
     void updateCrossoverFreqs()
     {
-        for (int ch = 0; ch < 2; ++ch)
+        for (size_t ch = 0; ch < 2; ++ch)
         {
             lowPass[ch].setCutoffFrequency(crossoverLowMid);
             highPass[ch].setCutoffFrequency(crossoverLowMid);
@@ -159,7 +153,6 @@ private:
         const float downReleaseCoeff = computeTimeConstant(comp.downwardRelease);
         const float upAttackCoeff = computeTimeConstant(comp.upwardAttack);
         const float upReleaseCoeff = computeTimeConstant(comp.upwardRelease);
-        const float bandGainLin = std::pow(10.0f, comp.gainDb / 20.0f);
 
         for (int s = 0; s < bandBuffer.getNumSamples(); ++s)
         {
@@ -210,7 +203,7 @@ private:
 
     float computeTimeConstant(float timeMs) const
     {
-        return std::exp(-1.0f / (timeMs * 0.001f * sampleRate));
+        return static_cast<float>(std::exp(-1.0f / (timeMs * 0.001f * sampleRate)));
     }
 
     float crossoverLowMid = 880.0f;

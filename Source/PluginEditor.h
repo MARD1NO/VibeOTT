@@ -15,7 +15,7 @@ public:
     void sliderValueChanged(juce::Slider*) override {}
 
 private:
-    VibeOTTProcessor& processor;
+    VibeOTTProcessor& processorRef;
 
     struct SliderWithAttachment
     {

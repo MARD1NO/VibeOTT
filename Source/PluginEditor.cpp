@@ -17,7 +17,7 @@ namespace Colours
 }
 
 VibeOTTEditor::VibeOTTEditor(VibeOTTProcessor& p)
-    : AudioProcessorEditor(&p), processor(p)
+    : AudioProcessorEditor(&p), processorRef(p)
 {
     setLookAndFeel(&lookAndFeel);
 
@@ -66,10 +66,10 @@ VibeOTTEditor::SliderWithAttachment VibeOTTEditor::createSlider(
     swa.label = std::make_unique<juce::Label>(paramId + "_label", labelText);
     swa.label->setJustificationType(juce::Justification::centred);
     swa.label->setColour(juce::Label::textColourId, Colours::textDim);
-    swa.label->setFont(juce::Font(11.0f));
+    swa.label->setFont(juce::FontOptions(11.0f));
 
     swa.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processor.apvts, paramId, *swa.slider);
+        processorRef.apvts, paramId, *swa.slider);
 
     addAndMakeVisible(*swa.slider);
     addAndMakeVisible(*swa.label);
@@ -85,10 +85,10 @@ void VibeOTTEditor::paint(juce::Graphics& g)
     auto topArea = bounds.removeFromTop(50);
 
     g.setColour(Colours::accent);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::FontOptions(24.0f, juce::Font::bold));
     g.drawText("VIBEOTT", topArea, juce::Justification::centred, true);
 
-    g.setFont(juce::Font(10.0f));
+    g.setFont(juce::FontOptions(10.0f));
     g.setColour(Colours::textDim);
     g.drawText("v1.0", topArea.removeFromRight(40), juce::Justification::centredRight, true);
 
@@ -96,14 +96,14 @@ void VibeOTTEditor::paint(juce::Graphics& g)
     g.setColour(Colours::panel);
     g.fillRoundedRectangle(upArea.toFloat(), 6.0f);
     g.setColour(Colours::upColor);
-    g.setFont(juce::Font(13.0f, juce::Font::bold));
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
     g.drawText("UPWARD", upArea.removeFromTop(22), juce::Justification::centred, true);
 
     auto downArea = bounds.removeFromLeft(bounds.getWidth() / 2).reduced(5);
     g.setColour(Colours::panel);
     g.fillRoundedRectangle(downArea.toFloat(), 6.0f);
     g.setColour(Colours::downColor);
-    g.setFont(juce::Font(13.0f, juce::Font::bold));
+    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
     g.drawText("DOWNWARD", downArea.removeFromTop(22), juce::Justification::centred, true);
 
     auto rightArea = bounds.reduced(5);
@@ -168,7 +168,7 @@ void VibeOTTEditor::resized()
         s->setColour(juce::Slider::rotarySliderFillColourId, Colours::downColor);
 
     {
-        auto rightTop = rightArea.removeFromTop(22);
+        rightArea.removeFromTop(22);
         auto row1 = rightArea.removeFromTop(sliderHeight + labelHeight);
         int sw = row1.getWidth() / 2;
         auto left = row1.removeFromLeft(sw);
