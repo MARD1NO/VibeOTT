@@ -1,46 +1,108 @@
 #include "PluginEditor.h"
 
-namespace Colours
+namespace OTTColours
 {
-    static const juce::Colour background { 30, 30, 35 };
-    static const juce::Colour panel { 42, 42, 50 };
-    static const juce::Colour panelLight { 55, 55, 65 };
-    static const juce::Colour accent { 0, 180, 255 };
-    static const juce::Colour accentDim { 0, 120, 180 };
-    static const juce::Colour text { 220, 220, 230 };
-    static const juce::Colour textDim { 140, 140, 155 };
-    static const juce::Colour upColor { 255, 140, 50 };
-    static const juce::Colour downColor { 50, 200, 150 };
-    static const juce::Colour lowColor { 50, 180, 255 };
-    static const juce::Colour midColor { 180, 120, 255 };
-    static const juce::Colour highColor { 255, 200, 80 };
+    static const juce::Colour background    { 20, 20, 20 };
+    static const juce::Colour panel         { 30, 30, 30 };
+    static const juce::Colour division       { 45, 45, 45 };
+    static const juce::Colour track         { 50, 50, 55 };
+    static const juce::Colour fill          { 210, 210, 220 };
+    static const juce::Colour text          { 170, 170, 180 };
+    static const juce::Colour textDim       { 100, 100, 110 };
+    static const juce::Colour lowColour     { 80, 160, 255 };
+    static const juce::Colour midColour     { 160, 100, 255 };
+    static const juce::Colour highColour    { 255, 180, 60 };
+    static const juce::Colour upColour      { 255, 120, 40 };
+    static const juce::Colour downColour    { 60, 200, 160 };
+}
+
+OTTLookAndFeel::OTTLookAndFeel()
+{
+    setColour(juce::Slider::textBoxTextColourId, OTTColours::text);
+    setColour(juce::Slider::textBoxBackgroundColourId, OTTColours::panel);
+    setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(0));
+    setColour(juce::Slider::textBoxHighlightColourId, OTTColours::fill);
+}
+
+void OTTLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
+                                       float sliderPos, float rotaryStartAngle,
+                                       float rotaryEndAngle, juce::Slider& slider)
+{
+    auto radius = (float)juce::jmin(width / 2, height / 2) - 4.0f;
+    auto centreX = (float)x + (float)width * 0.5f;
+    auto centreY = (float)y + (float)height * 0.5f;
+    auto angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+
+    const float arcThickness = 2.5f;
+
+    juce::Path trackArc;
+    trackArc.addCentredArc(centreX, centreY, radius, radius, 0.0f,
+                           rotaryStartAngle, rotaryEndAngle, true);
+    g.setColour(OTTColours::track);
+    g.strokePath(trackArc, juce::PathStrokeType(arcThickness));
+
+    auto* knobColour = slider.getProperties().getVarPointer("knobColour");
+    juce::Colour fillColour = knobColour
+        ? juce::Colour((uint32_t)(juce::int64)*knobColour)
+        : OTTColours::fill;
+
+    juce::Path fillArc;
+    fillArc.addCentredArc(centreX, centreY, radius, radius, 0.0f,
+                          rotaryStartAngle, angle, true);
+    g.setColour(fillColour);
+    g.strokePath(fillArc, juce::PathStrokeType(arcThickness));
+
+    float innerRadius = radius * 0.35f;
+    juce::Path dot;
+    dot.addEllipse(centreX - innerRadius * 0.5f, centreY - radius - innerRadius * 0.5f,
+                   innerRadius, innerRadius);
+    g.setColour(fillColour);
+    g.fillPath(dot);
+
+    auto thumbAngle = angle;
+    auto thumbX = centreX + std::sin(thumbAngle) * (radius - 1.0f);
+    auto thumbY = centreY - std::cos(thumbAngle) * (radius - 1.0f);
+    g.setColour(fillColour);
+    g.fillEllipse(thumbX - 3.0f, thumbY - 3.0f, 6.0f, 6.0f);
 }
 
 VibeOTTEditor::VibeOTTEditor(VibeOTTProcessor& p)
     : AudioProcessorEditor(&p), processorRef(p)
 {
-    setLookAndFeel(&lookAndFeel);
+    setLookAndFeel(&ottLookAndFeel);
 
-    depthSlider = createSlider("DEPTH", "Depth");
-    mixSlider = createSlider("MIX", "Mix");
-    crossoverLowMidSlider = createSlider("CROSSOVER_LOW_MID", "X-Over Lo/Mid");
-    crossoverMidHighSlider = createSlider("CROSSOVER_MID_HIGH", "X-Over Mid/Hi");
+    depthSlider = createKnob("DEPTH");
+    mixSlider = createKnob("MIX");
 
-    upThresholdSlider = createSlider("UP_THRESHOLD", "Threshold");
-    upRatioSlider = createSlider("UP_RATIO", "Ratio");
-    upAttackSlider = createSlider("UP_ATTACK", "Attack");
-    upReleaseSlider = createSlider("UP_RELEASE", "Release");
+    upThresholdSlider = createKnob("UP_THRESHOLD");
+    upRatioSlider = createKnob("UP_RATIO");
+    upAttackSlider = createKnob("UP_ATTACK");
+    upReleaseSlider = createKnob("UP_RELEASE");
 
-    downThresholdSlider = createSlider("DOWN_THRESHOLD", "Threshold");
-    downRatioSlider = createSlider("DOWN_RATIO", "Ratio");
-    downAttackSlider = createSlider("DOWN_ATTACK", "Attack");
-    downReleaseSlider = createSlider("DOWN_RELEASE", "Release");
+    downThresholdSlider = createKnob("DOWN_THRESHOLD");
+    downRatioSlider = createKnob("DOWN_RATIO");
+    downAttackSlider = createKnob("DOWN_ATTACK");
+    downReleaseSlider = createKnob("DOWN_RELEASE");
 
-    lowGainSlider = createSlider("LOW_GAIN", "Low");
-    midGainSlider = createSlider("MID_GAIN", "Mid");
-    highGainSlider = createSlider("HIGH_GAIN", "High");
+    lowGainSlider = createKnob("LOW_GAIN");
+    midGainSlider = createKnob("MID_GAIN");
+    highGainSlider = createKnob("HIGH_GAIN");
 
-    setSize(620, 520);
+    upThresholdSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::upColour.getARGB());
+    upRatioSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::upColour.getARGB());
+    upAttackSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::upColour.getARGB());
+    upReleaseSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::upColour.getARGB());
+
+    downThresholdSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::downColour.getARGB());
+    downRatioSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::downColour.getARGB());
+    downAttackSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::downColour.getARGB());
+    downReleaseSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::downColour.getARGB());
+
+    lowGainSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::lowColour.getARGB());
+    midGainSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::midColour.getARGB());
+    highGainSlider.slider->getProperties().set("knobColour", (juce::int64)OTTColours::highColour.getARGB());
+
+    setSize(380, 400);
 }
 
 VibeOTTEditor::~VibeOTTEditor()
@@ -48,177 +110,115 @@ VibeOTTEditor::~VibeOTTEditor()
     setLookAndFeel(nullptr);
 }
 
-VibeOTTEditor::SliderWithAttachment VibeOTTEditor::createSlider(
-    const juce::String& paramId, const juce::String& labelText)
+VibeOTTEditor::Knob VibeOTTEditor::createKnob(const juce::String& paramId)
 {
-    SliderWithAttachment swa;
-    swa.slider = std::make_unique<juce::Slider>(juce::Slider::RotaryHorizontalVerticalDrag,
-                                                  juce::Slider::TextBoxBelow);
-    swa.slider->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    swa.slider->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 18);
-    swa.slider->setColour(juce::Slider::rotarySliderFillColourId, Colours::accent);
-    swa.slider->setColour(juce::Slider::rotarySliderOutlineColourId, Colours::panelLight);
-    swa.slider->setColour(juce::Slider::thumbColourId, Colours::accent);
-    swa.slider->setColour(juce::Slider::textBoxTextColourId, Colours::text);
-    swa.slider->setColour(juce::Slider::textBoxBackgroundColourId, Colours::panel);
-    swa.slider->setColour(juce::Slider::textBoxOutlineColourId, Colours::panelLight);
-
-    swa.label = std::make_unique<juce::Label>(paramId + "_label", labelText);
-    swa.label->setJustificationType(juce::Justification::centred);
-    swa.label->setColour(juce::Label::textColourId, Colours::textDim);
-    swa.label->setFont(juce::FontOptions(11.0f));
-
-    swa.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processorRef.apvts, paramId, *swa.slider);
-
-    addAndMakeVisible(*swa.slider);
-    addAndMakeVisible(*swa.label);
-
-    return swa;
+    Knob k;
+    k.slider = std::make_unique<juce::Slider>(juce::Slider::RotaryHorizontalVerticalDrag,
+                                               juce::Slider::NoTextBox);
+    k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.apvts, paramId, *k.slider);
+    addAndMakeVisible(*k.slider);
+    return k;
 }
 
 void VibeOTTEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(Colours::background);
+    g.fillAll(OTTColours::background);
 
-    auto bounds = getLocalBounds().reduced(10);
-    auto topArea = bounds.removeFromTop(50);
+    auto bounds = getLocalBounds();
 
-    g.setColour(Colours::accent);
-    g.setFont(juce::FontOptions(24.0f, juce::Font::bold));
-    g.drawText("VIBEOTT", topArea, juce::Justification::centred, true);
+    g.setColour(OTTColours::fill);
+    g.setFont(juce::FontOptions(18.0f, juce::Font::bold));
+    g.drawText("OTT", bounds.removeFromTop(32), juce::Justification::centred, false);
 
-    g.setFont(juce::FontOptions(10.0f));
-    g.setColour(Colours::textDim);
-    g.drawText("v1.0", topArea.removeFromRight(40), juce::Justification::centredRight, true);
+    g.setColour(OTTColours::textDim);
+    g.setFont(juce::FontOptions(8.0f));
+    g.drawText("VIBE", bounds.removeFromTop(12), juce::Justification::centred, false);
 
-    auto upArea = bounds.removeFromLeft(bounds.getWidth() / 3).reduced(5);
-    g.setColour(Colours::panel);
-    g.fillRoundedRectangle(upArea.toFloat(), 6.0f);
-    g.setColour(Colours::upColor);
-    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-    g.drawText("UPWARD", upArea.removeFromTop(22), juce::Justification::centred, true);
+    auto rowLabels = { "LOW", "MID", "HIGH" };
+    auto colours = { OTTColours::lowColour, OTTColours::midColour, OTTColours::highColour };
+    auto y = 48;
 
-    auto downArea = bounds.removeFromLeft(bounds.getWidth() / 2).reduced(5);
-    g.setColour(Colours::panel);
-    g.fillRoundedRectangle(downArea.toFloat(), 6.0f);
-    g.setColour(Colours::downColor);
-    g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-    g.drawText("DOWNWARD", downArea.removeFromTop(22), juce::Justification::centred, true);
+    auto coloursIter = colours.begin();
+    for (auto& label : rowLabels)
+    {
+        auto c = *coloursIter;
+        ++coloursIter;
+        g.setColour(c);
+        g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+        g.drawText(label, juce::Rectangle<int>(4, y, 40, 16), juce::Justification::centredLeft, false);
+        y += 110;
+    }
 
-    auto rightArea = bounds.reduced(5);
-    g.setColour(Colours::panel);
-    g.fillRoundedRectangle(rightArea.toFloat(), 6.0f);
+    g.setColour(OTTColours::division);
+    g.drawHorizontalLine(44, 0, (float)getWidth());
+    g.drawHorizontalLine(152, 0, (float)getWidth());
+    g.drawHorizontalLine(262, 0, (float)getWidth());
+
+    g.setColour(OTTColours::textDim);
+    g.setFont(juce::FontOptions(7.0f));
+    auto labelY = 48;
+    auto colX = 52;
+    auto colW = 48;
+
+    const char* colLabels[] = { "THR", "RAT", "ATK", "RLS" };
+    for (int c = 0; c < 4; ++c)
+    {
+        g.drawFittedText(colLabels[c], colX + c * colW, labelY, colW, 10, juce::Justification::centred, 1);
+    }
+
+    auto upY = 167;
+    g.setColour(OTTColours::upColour);
+    g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+    g.drawText("UP", juce::Rectangle<int>(4, upY, 40, 14), juce::Justification::centredLeft, false);
+    g.setColour(OTTColours::textDim);
+    g.setFont(juce::FontOptions(7.0f));
+    for (int c = 0; c < 4; ++c)
+    {
+        g.drawFittedText(colLabels[c], colX + c * colW, upY + 14, colW, 10, juce::Justification::centred, 1);
+    }
+
+    auto downY = 275;
+    g.setColour(OTTColours::downColour);
+    g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+    g.drawText("DOWN", juce::Rectangle<int>(4, downY, 40, 14), juce::Justification::centredLeft, false);
+    g.setColour(OTTColours::textDim);
+    g.setFont(juce::FontOptions(7.0f));
+    for (int c = 0; c < 4; ++c)
+    {
+        g.drawFittedText(colLabels[c], colX + c * colW, downY + 14, colW, 10, juce::Justification::centred, 1);
+    }
+
+    g.setColour(OTTColours::textDim);
+    g.setFont(juce::FontOptions(7.0f));
+    g.drawText("DPTH", getWidth() - 80, 48, 36, 10, juce::Justification::centred, 1);
+    g.drawText("MIX", getWidth() - 40, 48, 36, 10, juce::Justification::centred, 1);
+
+    g.drawText("GAIN", getWidth() - 50, 158 + 24, 44, 10, juce::Justification::centred, 1);
 }
 
 void VibeOTTEditor::resized()
 {
-    auto bounds = getLocalBounds().reduced(10);
-    bounds.removeFromTop(50);
+    auto knobSize = 40;
+    auto colX = 52;
+    auto colW = 48;
 
-    const int sliderHeight = 90;
-    const int labelHeight = 16;
-    const int gap = 8;
-    const int colWidth = (bounds.getWidth() - 20) / 3;
-
-    auto upArea = bounds.removeFromLeft(colWidth).reduced(5);
-    upArea.removeFromTop(22);
-
-    auto downArea = bounds.removeFromLeft(colWidth).reduced(5);
-    downArea.removeFromTop(22);
-
-    auto rightArea = bounds.reduced(5);
-
-    auto layoutColumn = [&](auto& area, auto& s1, auto& s2, auto& s3, auto& s4)
+    auto setKnobRow = [&](Knob& k1, Knob& k2, Knob& k3, Knob& k4, int y)
     {
-        auto row = area.removeFromTop(sliderHeight + labelHeight);
-        int sw = row.getWidth() / 2;
-        auto left = row.removeFromLeft(sw);
-        auto right = row;
-
-        auto r1 = left.removeFromTop(labelHeight);
-        s1.label->setBounds(r1);
-        s1.slider->setBounds(left.removeFromTop(sliderHeight).reduced(gap));
-
-        auto r2 = right.removeFromTop(labelHeight);
-        s2.label->setBounds(r2);
-        s2.slider->setBounds(right.removeFromTop(sliderHeight).reduced(gap));
-
-        row = area.removeFromTop(sliderHeight + labelHeight);
-        left = row.removeFromLeft(sw);
-        right = row;
-
-        r1 = left.removeFromTop(labelHeight);
-        s3.label->setBounds(r1);
-        s3.slider->setBounds(left.removeFromTop(sliderHeight).reduced(gap));
-
-        r2 = right.removeFromTop(labelHeight);
-        s4.label->setBounds(r2);
-        s4.slider->setBounds(right.removeFromTop(sliderHeight).reduced(gap));
+        k1.slider->setBounds(colX, y, knobSize, knobSize);
+        k2.slider->setBounds(colX + colW, y, knobSize, knobSize);
+        k3.slider->setBounds(colX + colW * 2, y, knobSize, knobSize);
+        k4.slider->setBounds(colX + colW * 3, y, knobSize, knobSize);
     };
 
-    layoutColumn(upArea, upThresholdSlider, upRatioSlider, upAttackSlider, upReleaseSlider);
-    for (auto* s : { upThresholdSlider.slider.get(), upRatioSlider.slider.get(),
-                     upAttackSlider.slider.get(), upReleaseSlider.slider.get() })
-        s->setColour(juce::Slider::rotarySliderFillColourId, Colours::upColor);
+    auto bandY = 58;
+    setKnobRow(lowGainSlider, midGainSlider, highGainSlider, depthSlider, bandY);
 
-    layoutColumn(downArea, downThresholdSlider, downRatioSlider, downAttackSlider, downReleaseSlider);
-    for (auto* s : { downThresholdSlider.slider.get(), downRatioSlider.slider.get(),
-                     downAttackSlider.slider.get(), downReleaseSlider.slider.get() })
-        s->setColour(juce::Slider::rotarySliderFillColourId, Colours::downColor);
+    auto upY = 185;
+    setKnobRow(upThresholdSlider, upRatioSlider, upAttackSlider, upReleaseSlider, upY);
 
-    {
-        rightArea.removeFromTop(22);
-        auto row1 = rightArea.removeFromTop(sliderHeight + labelHeight);
-        int sw = row1.getWidth() / 2;
-        auto left = row1.removeFromLeft(sw);
-        auto right = row1;
+    auto downY = 293;
+    setKnobRow(downThresholdSlider, downRatioSlider, downAttackSlider, downReleaseSlider, downY);
 
-        auto r = left.removeFromTop(labelHeight);
-        depthSlider.label->setBounds(r);
-        depthSlider.slider->setBounds(left.removeFromTop(sliderHeight).reduced(gap));
-
-        r = right.removeFromTop(labelHeight);
-        mixSlider.label->setBounds(r);
-        mixSlider.slider->setBounds(right.removeFromTop(sliderHeight).reduced(gap));
-
-        auto row2 = rightArea.removeFromTop(sliderHeight + labelHeight);
-        left = row2.removeFromLeft(sw);
-        right = row2;
-
-        r = left.removeFromTop(labelHeight);
-        crossoverLowMidSlider.label->setBounds(r);
-        crossoverLowMidSlider.slider->setBounds(left.removeFromTop(sliderHeight).reduced(gap));
-
-        r = right.removeFromTop(labelHeight);
-        crossoverMidHighSlider.label->setBounds(r);
-        crossoverMidHighSlider.slider->setBounds(right.removeFromTop(sliderHeight).reduced(gap));
-    }
-
-    {
-        auto bandArea = rightArea;
-        auto row = bandArea.removeFromTop(sliderHeight + labelHeight);
-        int bw = row.getWidth() / 3;
-        auto lowCol = row.removeFromLeft(bw);
-        auto midCol = row.removeFromLeft(bw);
-        auto highCol = row;
-
-        auto r = lowCol.removeFromTop(labelHeight);
-        lowGainSlider.label->setBounds(r);
-        lowGainSlider.slider->setBounds(lowCol.removeFromTop(sliderHeight).reduced(gap));
-        lowGainSlider.slider->setColour(juce::Slider::rotarySliderFillColourId, Colours::lowColor);
-        lowGainSlider.label->setColour(juce::Label::textColourId, Colours::lowColor);
-
-        r = midCol.removeFromTop(labelHeight);
-        midGainSlider.label->setBounds(r);
-        midGainSlider.slider->setBounds(midCol.removeFromTop(sliderHeight).reduced(gap));
-        midGainSlider.slider->setColour(juce::Slider::rotarySliderFillColourId, Colours::midColor);
-        midGainSlider.label->setColour(juce::Label::textColourId, Colours::midColor);
-
-        r = highCol.removeFromTop(labelHeight);
-        highGainSlider.label->setBounds(r);
-        highGainSlider.slider->setBounds(highCol.removeFromTop(sliderHeight).reduced(gap));
-        highGainSlider.slider->setColour(juce::Slider::rotarySliderFillColourId, Colours::highColor);
-        highGainSlider.label->setColour(juce::Label::textColourId, Colours::highColor);
-    }
+    mixSlider.slider->setBounds(getWidth() - 50, 58, 40, 40);
 }

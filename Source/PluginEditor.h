@@ -3,8 +3,16 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 
-class VibeOTTEditor : public juce::AudioProcessorEditor,
-                      public juce::Slider::Listener
+class OTTLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    OTTLookAndFeel();
+    void drawRotarySlider(juce::Graphics&, int x, int y, int width, int height,
+                          float sliderPos, float rotaryStartAngle,
+                          float rotaryEndAngle, juce::Slider&) override;
+};
+
+class VibeOTTEditor : public juce::AudioProcessorEditor
 {
 public:
     VibeOTTEditor(VibeOTTProcessor&);
@@ -12,40 +20,35 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
-    void sliderValueChanged(juce::Slider*) override {}
 
 private:
     VibeOTTProcessor& processorRef;
+    OTTLookAndFeel ottLookAndFeel;
 
-    struct SliderWithAttachment
+    struct Knob
     {
         std::unique_ptr<juce::Slider> slider;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
-        std::unique_ptr<juce::Label> label;
     };
 
-    SliderWithAttachment createSlider(const juce::String& paramId, const juce::String& labelText);
+    Knob depthSlider;
+    Knob mixSlider;
 
-    SliderWithAttachment depthSlider;
-    SliderWithAttachment mixSlider;
-    SliderWithAttachment crossoverLowMidSlider;
-    SliderWithAttachment crossoverMidHighSlider;
+    Knob upThresholdSlider;
+    Knob upRatioSlider;
+    Knob upAttackSlider;
+    Knob upReleaseSlider;
 
-    SliderWithAttachment upThresholdSlider;
-    SliderWithAttachment upRatioSlider;
-    SliderWithAttachment upAttackSlider;
-    SliderWithAttachment upReleaseSlider;
+    Knob downThresholdSlider;
+    Knob downRatioSlider;
+    Knob downAttackSlider;
+    Knob downReleaseSlider;
 
-    SliderWithAttachment downThresholdSlider;
-    SliderWithAttachment downRatioSlider;
-    SliderWithAttachment downAttackSlider;
-    SliderWithAttachment downReleaseSlider;
+    Knob lowGainSlider;
+    Knob midGainSlider;
+    Knob highGainSlider;
 
-    SliderWithAttachment lowGainSlider;
-    SliderWithAttachment midGainSlider;
-    SliderWithAttachment highGainSlider;
-
-    juce::LookAndFeel_V4 lookAndFeel;
+    Knob createKnob(const juce::String& paramId);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VibeOTTEditor)
 };
