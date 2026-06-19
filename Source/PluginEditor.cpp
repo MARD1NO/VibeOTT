@@ -2,18 +2,18 @@
 
 namespace OTT
 {
-    static const juce::Colour bg           { 25, 25, 25 };
-    static const juce::Colour panel        { 33, 33, 33 };
-    static const juce::Colour separator    { 55, 55, 55 };
-    static const juce::Colour track        { 50, 50, 55 };
-    static const juce::Colour knobFill     { 200, 200, 210 };
-    static const juce::Colour text         { 160, 160, 170 };
-    static const juce::Colour textDim      { 90, 90, 100 };
-    static const juce::Colour lowColour    { 70, 145, 255 };
-    static const juce::Colour midColour    { 150, 90, 255 };
-    static const juce::Colour highColour   { 255, 170, 50 };
-    static const juce::Colour upColour     { 255, 110, 30 };
-    static const juce::Colour downColour   { 50, 200, 150 };
+    static const juce::Colour bg         { 25, 25, 25 };
+    static const juce::Colour panel      { 33, 33, 33 };
+    static const juce::Colour separator  { 55, 55, 55 };
+    static const juce::Colour track      { 50, 50, 55 };
+    static const juce::Colour knobFill   { 200, 200, 210 };
+    static const juce::Colour text       { 160, 160, 170 };
+    static const juce::Colour textDim    { 90, 90, 100 };
+    static const juce::Colour lowColour  { 70, 145, 255 };
+    static const juce::Colour midColour  { 150, 90, 255 };
+    static const juce::Colour highColour { 255, 170, 50 };
+    static const juce::Colour upColour   { 255, 110, 30 };
+    static const juce::Colour downColour { 50, 200, 150 };
 }
 
 OTTLookAndFeel::OTTLookAndFeel()
@@ -55,7 +55,83 @@ void OTTLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width
     float dx = cx + std::sin(angle) * dotR;
     float dy = cy - std::cos(angle) * dotR;
     g.setColour(colour);
-    g.fillEllipse(dx - 3.5f, dy - 3.5f, 7.0f, 7.0f);
+    g.fillEllipse(dx - 3.0f, dy - 3.0f, 6.0f, 6.0f);
+}
+
+BandMeter::BandMeter(VibeOTTProcessor& p, int bandIndex, juce::Colour c)
+    : processor(p), band(bandIndex), colour(c)
+{
+    startTimerHz(30);
+}
+
+void BandMeter::timerCallback()
+{
+    auto& levels = processor.getBandLevels();
+    float newLevel = levels.inputDb[band];
+    float newGR = levels.gainReductionDb[band];
+
+    level = juce::jmax(level * 0.85f, newLevel);
+    gainReduction = gainReduction * 0.8f + newGR * 0.2f;
+    if (newLevel > peakLevel) peakLevel = newLevel;
+    else peakLevel = juce::jmax(-100.0f, peakLevel - 0.5f);
+
+    repaint();
+}
+
+void BandMeter::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat();
+    float meterWidth = bounds.getWidth() * 0.5f;
+    float meterX = bounds.getCentreX() - meterWidth * 0.5f;
+    float meterHeight = bounds.getHeight() - 16.0f;
+
+    float minDb = -60.0f;
+    float maxDb = 0.0f;
+
+    auto dbToY = [&](float db) {
+        float norm = (db - minDb) / (maxDb - minDb);
+        norm = juce::jlimit(0.0f, 1.0f, norm);
+        return bounds.getY() + meterHeight * (1.0f - norm);
+    };
+
+    g.setColour(OTT::panel);
+    g.fillRect(meterX, bounds.getY(), meterWidth, meterHeight);
+
+    g.setColour(OTT::separator);
+    for (int db = -60; db <= 0; db += 12)
+    {
+        float y = dbToY((float)db);
+        g.drawHorizontalLine((int)y, meterX, meterX + meterWidth);
+    }
+
+    float levelY = dbToY(level);
+    g.setColour(colour);
+    g.fillRect(meterX, levelY, meterWidth, bounds.getY() + meterHeight - levelY);
+
+    float peakY = dbToY(peakLevel);
+    g.setColour(colour.withAlpha(0.6f));
+    g.drawHorizontalLine((int)peakY, meterX, meterX + meterWidth);
+
+    if (gainReduction < -0.1f)
+    {
+        float grY = dbToY(0.0f);
+        float grEndY = dbToY(juce::jmax((float)-36.0f, gainReduction));
+        g.setColour(OTT::downColour);
+        g.fillRect(meterX + meterWidth + 2.0f, grY, 3.0f, grEndY - grY);
+    }
+    else if (gainReduction > 0.1f)
+    {
+        float grEndY = dbToY(juce::jmin(36.0f, gainReduction));
+        g.setColour(OTT::upColour);
+        g.fillRect(meterX - 5.0f, grEndY, 3.0f, dbToY(0.0f) - grEndY);
+    }
+
+    g.setColour(colour);
+    g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
+    auto labels = { "L", "M", "H" };
+    int labelIdx = juce::jmin(band, 2);
+    g.drawText(*(labels.begin() + labelIdx), bounds.removeFromBottom(14.0f).toNearestInt(),
+               juce::Justification::centred, false);
 }
 
 VibeOTTEditor::VibeOTTEditor(VibeOTTProcessor& p)
@@ -63,12 +139,12 @@ VibeOTTEditor::VibeOTTEditor(VibeOTTProcessor& p)
 {
     setLookAndFeel(&ottLookAndFeel);
 
-    depthSlider = createKnob("DEPTH");
-    upwardRatioSlider = createKnob("UPWARD_RATIO");
-    downwardRatioSlider = createKnob("DOWNWARD_RATIO");
-    lowGainSlider = createKnob("LOW_GAIN");
-    midGainSlider = createKnob("MID_GAIN");
-    highGainSlider = createKnob("HIGH_GAIN");
+    depthSlider = createKnob("DEPTH", "DEPTH");
+    upwardRatioSlider = createKnob("UPWARD_RATIO", "UP");
+    downwardRatioSlider = createKnob("DOWNWARD_RATIO", "DOWN");
+    lowGainSlider = createKnob("LOW_GAIN", "LOW");
+    midGainSlider = createKnob("MID_GAIN", "MID");
+    highGainSlider = createKnob("HIGH_GAIN", "HIGH");
 
     depthSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::knobFill.getARGB());
     upwardRatioSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::upColour.getARGB());
@@ -77,7 +153,22 @@ VibeOTTEditor::VibeOTTEditor(VibeOTTProcessor& p)
     midGainSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::midColour.getARGB());
     highGainSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::highColour.getARGB());
 
-    setSize(350, 280);
+    lowUpThresh = createThresholdSlider("LOW_UP_THRESH");
+    midUpThresh = createThresholdSlider("MID_UP_THRESH");
+    highUpThresh = createThresholdSlider("HIGH_UP_THRESH");
+    lowDownThresh = createThresholdSlider("LOW_DOWN_THRESH");
+    midDownThresh = createThresholdSlider("MID_DOWN_THRESH");
+    highDownThresh = createThresholdSlider("HIGH_DOWN_THRESH");
+
+    lowMeter = std::make_unique<BandMeter>(processorRef, 0, OTT::lowColour);
+    midMeter = std::make_unique<BandMeter>(processorRef, 1, OTT::midColour);
+    highMeter = std::make_unique<BandMeter>(processorRef, 2, OTT::highColour);
+
+    addAndMakeVisible(*lowMeter);
+    addAndMakeVisible(*midMeter);
+    addAndMakeVisible(*highMeter);
+
+    setSize(520, 400);
 }
 
 VibeOTTEditor::~VibeOTTEditor()
@@ -85,23 +176,39 @@ VibeOTTEditor::~VibeOTTEditor()
     setLookAndFeel(nullptr);
 }
 
-VibeOTTEditor::Knob VibeOTTEditor::createKnob(const juce::String& paramId)
+VibeOTTEditor::Knob VibeOTTEditor::createKnob(const juce::String& paramId, const juce::String& labelText)
 {
     Knob k;
     k.slider = std::make_unique<juce::Slider>(juce::Slider::RotaryHorizontalVerticalDrag,
                                                juce::Slider::NoTextBox);
     k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.apvts, paramId, *k.slider);
+    k.label = std::make_unique<juce::Label>();
+    k.label->setText(labelText, juce::dontSendNotification);
+    k.label->setJustificationType(juce::Justification::centred);
+    k.label->setFont(juce::FontOptions(8.0f, juce::Font::bold));
+    k.label->setColour(juce::Label::textColourId, OTT::textDim);
     addAndMakeVisible(*k.slider);
+    addAndMakeVisible(*k.label);
     return k;
+}
+
+VibeOTTEditor::ThresholdSlider VibeOTTEditor::createThresholdSlider(const juce::String& paramId)
+{
+    ThresholdSlider ts;
+    ts.slider = std::make_unique<juce::Slider>(juce::Slider::LinearVertical,
+                                                juce::Slider::NoTextBox);
+    ts.slider->setColour(juce::Slider::trackColourId, OTT::track);
+    ts.slider->setColour(juce::Slider::thumbColourId, OTT::knobFill);
+    ts.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.apvts, paramId, *ts.slider);
+    addAndMakeVisible(*ts.slider);
+    return ts;
 }
 
 void VibeOTTEditor::paint(juce::Graphics& g)
 {
     g.fillAll(OTT::bg);
-
-    auto w = (float)getWidth();
-    (void)w;
 
     g.setColour(OTT::knobFill);
     g.setFont(juce::FontOptions(22.0f, juce::Font::bold));
@@ -109,54 +216,75 @@ void VibeOTTEditor::paint(juce::Graphics& g)
 
     g.setColour(OTT::textDim);
     g.setFont(juce::FontOptions(8.0f));
-    g.drawText("VIBE AUDIO", getLocalBounds().withHeight(12).withY(30),
-               juce::Justification::centred, false);
+    g.drawText("VIBE AUDIO", 0, 30, getWidth(), 12, juce::Justification::centred, false);
 
     g.setColour(OTT::separator);
-    g.drawHorizontalLine(44, 8.0f, getWidth() - 8.0f);
+    g.drawHorizontalLine(44, 8.0f, (float)getWidth() - 8.0f);
 
-    int labelY = 56;
-    int knobW = 56;
-    int knobH = 56;
-    int spacing = 16;
-    int startX = 12;
+    g.setColour(OTT::upColour);
+    g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
+    g.drawText("UPWARD", 8, 250, 100, 14, juce::Justification::left, false);
 
-    struct LabelInfo { const char* name; juce::Colour colour; };
-    LabelInfo labels[] = {
-        { "DEPTH",  OTT::knobFill },
-        { "UP",     OTT::upColour },
-        { "DOWN",   OTT::downColour },
-        { "LOW",    OTT::lowColour },
-        { "MID",    OTT::midColour },
-        { "HIGH",   OTT::highColour },
-    };
+    g.setColour(OTT::downColour);
+    g.drawText("DOWNWARD", 8, 330, 100, 14, juce::Justification::left, false);
 
-    for (int i = 0; i < 6; ++i)
-    {
-        int x = startX + i * (knobW + spacing);
-        g.setColour(labels[i].colour);
-        g.setFont(juce::FontOptions(8.0f, juce::Font::bold));
-        g.drawText(labels[i].name, juce::Rectangle<int>(x, labelY, knobW, 12),
-                   juce::Justification::centred, false);
-    }
-
-    g.setColour(OTT::separator);
-    g.drawHorizontalLine(130, 8.0f, getWidth() - 8.0f);
+    g.setColour(OTT::textDim);
+    g.setFont(juce::FontOptions(8.0f));
+    g.drawText("THRESHOLDS", 8, 236, 200, 12, juce::Justification::left, false);
 }
 
 void VibeOTTEditor::resized()
 {
-    int knobSize = 56;
-    int spacing = 16;
-    int startX = 12;
-    int knobY = 68;
-    int secondRowY = 150;
+    int knobSize = 50;
+    int knobSpacing = 14;
+    int knobY = 56;
+    int startX = 10;
 
-    depthSlider.slider->setBounds(startX + 0 * (knobSize + spacing), knobY, knobSize, knobSize);
-    upwardRatioSlider.slider->setBounds(startX + 1 * (knobSize + spacing), knobY, knobSize, knobSize);
-    downwardRatioSlider.slider->setBounds(startX + 2 * (knobSize + spacing), knobY, knobSize, knobSize);
+    depthSlider.slider->setBounds(startX, knobY, knobSize, knobSize);
+    depthSlider.label->setBounds(startX, knobY + knobSize, knobSize, 14);
 
-    lowGainSlider.slider->setBounds(startX + 3 * (knobSize + spacing), knobY, knobSize, knobSize);
-    midGainSlider.slider->setBounds(startX + 4 * (knobSize + spacing), knobY, knobSize, knobSize);
-    highGainSlider.slider->setBounds(startX + 5 * (knobSize + spacing), knobY, knobSize, knobSize);
+    upwardRatioSlider.slider->setBounds(startX + (knobSize + knobSpacing), knobY, knobSize, knobSize);
+    upwardRatioSlider.label->setBounds(startX + (knobSize + knobSpacing), knobY + knobSize, knobSize, 14);
+
+    downwardRatioSlider.slider->setBounds(startX + 2 * (knobSize + knobSpacing), knobY, knobSize, knobSize);
+    downwardRatioSlider.label->setBounds(startX + 2 * (knobSize + knobSpacing), knobY + knobSize, knobSize, 14);
+
+    lowGainSlider.slider->setBounds(startX + 3 * (knobSize + knobSpacing), knobY, knobSize, knobSize);
+    lowGainSlider.label->setBounds(startX + 3 * (knobSize + knobSpacing), knobY + knobSize, knobSize, 14);
+
+    midGainSlider.slider->setBounds(startX + 4 * (knobSize + knobSpacing), knobY, knobSize, knobSize);
+    midGainSlider.label->setBounds(startX + 4 * (knobSize + knobSpacing), knobY + knobSize, knobSize, 14);
+
+    highGainSlider.slider->setBounds(startX + 5 * (knobSize + knobSpacing), knobY, knobSize, knobSize);
+    highGainSlider.label->setBounds(startX + 5 * (knobSize + knobSpacing), knobY + knobSize, knobSize, 14);
+
+    int meterY = 56;
+    int meterH = 170;
+    int meterW = 28;
+    int meterX = getWidth() - 120;
+
+    int meterSpacing = 36;
+    lowMeter->setBounds(meterX + meterSpacing * 0, meterY, meterW, meterH);
+    midMeter->setBounds(meterX + meterSpacing * 1, meterY, meterW, meterH);
+    highMeter->setBounds(meterX + meterSpacing * 2, meterY, meterW, meterH);
+
+    int threshY = 266;
+    int threshH = 60;
+    int threshW = 16;
+    int threshSpacing = 22;
+
+    for (int b = 0; b < 3; ++b)
+    {
+        int x = 40 + b * (threshW + threshSpacing);
+
+        auto& upT = (b == 0) ? lowUpThresh : (b == 1) ? midUpThresh : highUpThresh;
+        upT.slider->setBounds(x, threshY, threshW, threshH);
+        upT.slider->setColour(juce::Slider::thumbColourId,
+            b == 0 ? OTT::lowColour : b == 1 ? OTT::midColour : OTT::highColour);
+
+        auto& downT = (b == 0) ? lowDownThresh : (b == 1) ? midDownThresh : highDownThresh;
+        downT.slider->setBounds(x, threshY + 70, threshW, threshH);
+        downT.slider->setColour(juce::Slider::thumbColourId,
+            b == 0 ? OTT::lowColour : b == 1 ? OTT::midColour : OTT::highColour);
+    }
 }

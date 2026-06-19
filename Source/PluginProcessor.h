@@ -37,6 +37,8 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    const OTTMultibandCompressor::BandLevels& getBandLevels() const { return compressor.getBandLevels(); }
+
 private:
     OTTMultibandCompressor compressor;
 
@@ -46,6 +48,13 @@ private:
     std::atomic<float>* lowGainParam = nullptr;
     std::atomic<float>* midGainParam = nullptr;
     std::atomic<float>* highGainParam = nullptr;
+
+    std::atomic<float>* lowUpThreshParam = nullptr;
+    std::atomic<float>* midUpThreshParam = nullptr;
+    std::atomic<float>* highUpThreshParam = nullptr;
+    std::atomic<float>* lowDownThreshParam = nullptr;
+    std::atomic<float>* midDownThreshParam = nullptr;
+    std::atomic<float>* highDownThreshParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VibeOTTProcessor)
 };
