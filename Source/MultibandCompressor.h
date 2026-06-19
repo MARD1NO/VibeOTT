@@ -46,8 +46,8 @@ public:
     void setUpwardRatio(float r) { upwardRatioRaw = r; }
     void setDownwardRatio(float r) { downwardRatioRaw = r; }
     void setBandGain(int band, float g) { bandGains[band] = g; }
-    void setUpwardThreshold(int band, float t) { upThresholds[band] = t; }
-    void setDownwardThreshold(int band, float t) { downThresholds[band] = t; }
+    void setUpwardThreshold(int band, float t) { thresholds[band] = t; }
+    void setDownwardThreshold(int band, float t) { thresholds[band] = t; }
 
     const BandLevels& getBandLevels() const { return bandLevels; }
 
@@ -183,22 +183,21 @@ private:
         env = coeff * env + (1.0 - coeff) * inputDb;
 
         float envDb = (float)env;
-        float upThreshold = upThresholds[band];
-        float downThreshold = downThresholds[band];
+        float threshold = thresholds[band];
 
         float gainDb = 0.0f;
 
-        if (envDb < upThreshold && upRatio > 1.0f)
+        if (envDb < threshold && upRatio > 1.0f)
         {
-            float underDb = upThreshold - envDb;
+            float underDb = threshold - envDb;
             float upGain = underDb * (1.0f - 1.0f / upRatio);
             upGain = juce::jmin(upGain, 36.0f);
             gainDb += upGain;
         }
 
-        if (envDb > downThreshold && downRatio > 1.0f)
+        if (envDb > threshold && downRatio > 1.0f)
         {
-            float overDb = envDb - downThreshold;
+            float overDb = envDb - threshold;
             float downGain = overDb * (1.0f - 1.0f / downRatio);
             downGain = juce::jmin(downGain, 36.0f);
             gainDb -= downGain;
@@ -216,8 +215,7 @@ private:
     float upwardRatioRaw = 0.75f;
     float downwardRatioRaw = 0.75f;
     float bandGains[numBands] = {0.0f, 0.0f, 0.0f};
-    float upThresholds[numBands] = {-36.0f, -36.0f, -36.0f};
-    float downThresholds[numBands] = {-18.0f, -18.0f, -18.0f};
+    float thresholds[numBands] = {-30.0f, -30.0f, -30.0f};
     float depthSmoothed = 0.0f;
     float outputSmoothed = 1.0f;
 

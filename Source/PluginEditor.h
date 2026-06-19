@@ -67,8 +67,7 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     };
 
-    ThresholdSlider lowUpThresh, midUpThresh, highUpThresh;
-    ThresholdSlider lowDownThresh, midDownThresh, highDownThresh;
+    ThresholdSlider lowThresh, midThresh, highThresh;
 
     std::unique_ptr<BandMeter> lowMeter;
     std::unique_ptr<BandMeter> midMeter;

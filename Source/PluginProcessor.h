@@ -49,12 +49,9 @@ private:
     std::atomic<float>* midGainParam = nullptr;
     std::atomic<float>* highGainParam = nullptr;
 
-    std::atomic<float>* lowUpThreshParam = nullptr;
-    std::atomic<float>* midUpThreshParam = nullptr;
-    std::atomic<float>* highUpThreshParam = nullptr;
-    std::atomic<float>* lowDownThreshParam = nullptr;
-    std::atomic<float>* midDownThreshParam = nullptr;
-    std::atomic<float>* highDownThreshParam = nullptr;
+    std::atomic<float>* lowThreshParam = nullptr;
+    std::atomic<float>* midThreshParam = nullptr;
+    std::atomic<float>* highThreshParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VibeOTTProcessor)
 };
