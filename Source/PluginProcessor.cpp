@@ -26,24 +26,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout VibeOTTProcessor::createPara
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "DEPTH", "Depth", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
+        "DEPTH", "Depth", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "UPWARD_RATIO", "Upward Ratio",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.75f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.6f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "DOWNWARD_RATIO", "Downward Ratio",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.75f));
+        juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.7f));
 
     auto threshRange = juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f, 2.0f);
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "LOW_THRESH", "Low Threshold", threshRange, -30.0f));
+        "LOW_THRESH", "Low Threshold", threshRange, -20.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "MID_THRESH", "Mid Threshold", threshRange, -30.0f));
+        "MID_THRESH", "Mid Threshold", threshRange, -15.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "HIGH_THRESH", "High Threshold", threshRange, -30.0f));
+        "HIGH_THRESH", "High Threshold", threshRange, -10.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "LOW_GAIN", "Low Gain", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));

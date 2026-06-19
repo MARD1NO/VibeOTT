@@ -41,7 +41,6 @@ public:
         }
 
         depthSmoothed = 0.0f;
-        outputSmoothed = 1.0f;
     }
 
     void setDepth(float d) { depth = d; }
@@ -64,9 +63,8 @@ public:
         for (int s = 0; s < numSamples; ++s)
         {
             depthSmoothed += 0.01f * (depth - depthSmoothed);
-            outputSmoothed += 0.005f * (1.0f - outputSmoothed);
 
-            float bandSamples[2][numBands] = {};
+            std::array<std::array<float, numBands>, 2> bandSamples {};
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -116,19 +114,15 @@ public:
                 float midGainCompLin  = juce::Decibels::decibelsToGain(bandGainsDb[1], -100.0f);
                 float highGainCompLin = juce::Decibels::decibelsToGain(bandGainsDb[2], -100.0f);
 
-                float lowIn  = bandSamples[chIdx][0] * lowGainLin;
-                float midIn  = bandSamples[chIdx][1] * midGainLin;
-                float highIn = bandSamples[chIdx][2] * highGainLin;
+                float dry = bandSamples[chIdx][0] + bandSamples[chIdx][1] + bandSamples[chIdx][2];
 
                 float lowOut  = bandSamples[chIdx][0] * lowGainCompLin * lowGainLin;
                 float midOut  = bandSamples[chIdx][1] * midGainCompLin * midGainLin;
                 float highOut = bandSamples[chIdx][2] * highGainCompLin * highGainLin;
 
-                float dry = lowIn + midIn + highIn;
                 float wet = lowOut + midOut + highOut;
 
                 float output = dry * (1.0f - depthSmoothed) + wet * depthSmoothed;
-                output *= outputSmoothed;
 
                 buffer.setSample(ch, s, output);
             }
@@ -153,7 +147,6 @@ public:
             gainReductions[b] = 0.0f;
         }
         depthSmoothed = 0.0f;
-        outputSmoothed = 1.0f;
     }
 
 private:
@@ -215,13 +208,12 @@ private:
     }
 
     double currentSampleRate = 44100.0;
-    float depth = 1.0f;
-    float upwardRatioRaw = 0.75f;
-    float downwardRatioRaw = 0.75f;
+    float depth = 0.5f;
+    float upwardRatioRaw = 0.6f;
+    float downwardRatioRaw = 0.7f;
     float bandGains[numBands] = {0.0f, 0.0f, 0.0f};
-    float thresholds[numBands] = {-30.0f, -30.0f, -30.0f};
+    float thresholds[numBands] = {-20.0f, -15.0f, -10.0f};
     float depthSmoothed = 0.0f;
-    float outputSmoothed = 1.0f;
 
     juce::dsp::LinkwitzRileyFilter<float> crossoverFilters[2][2];
     double envelopes[numBands] = {-100.0, -100.0, -100.0};
