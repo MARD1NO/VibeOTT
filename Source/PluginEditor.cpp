@@ -218,13 +218,6 @@ void VibeOTTEditor::paint(juce::Graphics& g)
     g.setColour(OTT::separator);
     g.drawHorizontalLine(44, 8.0f, (float)getWidth() - 8.0f);
 
-    g.setColour(OTT::upColour);
-    g.setFont(juce::FontOptions(9.0f, juce::Font::bold));
-    g.drawText("UPWARD", 8, 250, 100, 14, juce::Justification::left, false);
-
-    g.setColour(OTT::downColour);
-    g.drawText("DOWNWARD", 8, 330, 100, 14, juce::Justification::left, false);
-
     g.setColour(OTT::textDim);
     g.setFont(juce::FontOptions(8.0f));
     g.drawText("BAND THRESHOLDS", 8, 236, 200, 12, juce::Justification::left, false);

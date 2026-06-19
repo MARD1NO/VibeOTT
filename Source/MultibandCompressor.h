@@ -81,7 +81,7 @@ public:
                 bandSamples[chIdx][2] = highBand;
             }
 
-            float bandOutputs[numBands] = {0.0f, 0.0f, 0.0f};
+            float bandGainsDb[numBands] = {0.0f, 0.0f, 0.0f};
             float bandInputs[numBands]  = {0.0f, 0.0f, 0.0f};
 
             for (int b = 0; b < numBands; ++b)
@@ -98,9 +98,8 @@ public:
 
                 bandInputs[b] = bandSample;
 
-                float processed = processBandCompression(b, bandSample,
-                    upwardRatio, downwardRatio);
-                bandOutputs[b] = processed;
+                computeBandGain(b, bandSample, upwardRatio, downwardRatio);
+                bandGainsDb[b] = gainReductions[b];
 
                 float inDb = juce::Decibels::gainToDecibels(std::abs(bandSample), -100.0f);
                 inputLevels[b] = juce::jmax(inputLevels[b] * 0.9f, inDb);
@@ -113,13 +112,17 @@ public:
                 float midGainLin  = juce::Decibels::decibelsToGain(bandGains[1], -100.0f);
                 float highGainLin = juce::Decibels::decibelsToGain(bandGains[2], -100.0f);
 
+                float lowGainCompLin  = juce::Decibels::decibelsToGain(bandGainsDb[0], -100.0f);
+                float midGainCompLin  = juce::Decibels::decibelsToGain(bandGainsDb[1], -100.0f);
+                float highGainCompLin = juce::Decibels::decibelsToGain(bandGainsDb[2], -100.0f);
+
                 float lowIn  = bandSamples[chIdx][0] * lowGainLin;
                 float midIn  = bandSamples[chIdx][1] * midGainLin;
                 float highIn = bandSamples[chIdx][2] * highGainLin;
 
-                float lowOut  = bandOutputs[0] * lowGainLin;
-                float midOut  = bandOutputs[1] * midGainLin;
-                float highOut = bandOutputs[2] * highGainLin;
+                float lowOut  = bandSamples[chIdx][0] * lowGainCompLin * lowGainLin;
+                float midOut  = bandSamples[chIdx][1] * midGainCompLin * midGainLin;
+                float highOut = bandSamples[chIdx][2] * highGainCompLin * highGainLin;
 
                 float dry = lowIn + midIn + highIn;
                 float wet = lowOut + midOut + highOut;
@@ -172,7 +175,7 @@ private:
         high = hpOut - midLp;
     }
 
-    float processBandCompression(int band, float sample, float upRatio, float downRatio)
+    void computeBandGain(int band, float sample, float upRatio, float downRatio)
     {
         float inputAbs = std::abs(sample);
         float inputDb = juce::Decibels::gainToDecibels(inputAbs, -100.0f);
@@ -209,10 +212,6 @@ private:
         }
 
         gainReductions[band] = gainDb;
-
-        float gainLin = juce::Decibels::decibelsToGain(gainDb, -100.0f);
-        gainLin = juce::jmin(gainLin, 100.0f);
-        return sample * gainLin;
     }
 
     double currentSampleRate = 44100.0;
