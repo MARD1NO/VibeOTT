@@ -35,8 +35,8 @@ public:
 
         for (int b = 0; b < numBands; ++b)
         {
-            envelopes[b] = -100.0;
-            inputLevels[b] = -100.0f;
+            envelopes[b] = thresholds[b];
+            inputLevels[b] = thresholds[b];
             gainReductions[b] = 0.0f;
         }
 
@@ -148,8 +148,8 @@ public:
                 crossoverFilters[ch][i].reset();
         for (int b = 0; b < numBands; ++b)
         {
-            envelopes[b] = -100.0;
-            inputLevels[b] = -100.0f;
+            envelopes[b] = thresholds[b];
+            inputLevels[b] = thresholds[b];
             gainReductions[b] = 0.0f;
         }
         depthSmoothed = 0.0f;
