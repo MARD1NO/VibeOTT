@@ -36,6 +36,7 @@ public:
         for (int b = 0; b < numBands; ++b)
         {
             envelopes[b] = thresholds[b];
+            gainEnvelopes[b] = 0.0;
             inputLevels[b] = thresholds[b];
             gainReductions[b] = 0.0f;
         }
@@ -143,6 +144,7 @@ public:
         for (int b = 0; b < numBands; ++b)
         {
             envelopes[b] = thresholds[b];
+            gainEnvelopes[b] = 0.0;
             inputLevels[b] = thresholds[b];
             gainReductions[b] = 0.0f;
         }
@@ -186,25 +188,30 @@ private:
         float envDb = (float)env;
         float threshold = thresholds[band];
 
-        float gainDb = 0.0f;
+        float targetGainDb = 0.0f;
 
         if (envDb < threshold && upRatio > 1.0f)
         {
             float underDb = threshold - envDb;
             float upGain = underDb * (1.0f - 1.0f / upRatio);
-            upGain = juce::jmin(upGain, 36.0f);
-            gainDb += upGain;
+            upGain = juce::jmin(upGain, 24.0f);
+            targetGainDb += upGain;
         }
 
         if (envDb > threshold && downRatio > 1.0f)
         {
             float overDb = envDb - threshold;
             float downGain = overDb * (1.0f - 1.0f / downRatio);
-            downGain = juce::jmin(downGain, 36.0f);
-            gainDb -= downGain;
+            downGain = juce::jmin(downGain, 24.0f);
+            targetGainDb -= downGain;
         }
 
-        gainReductions[band] = gainDb;
+        double& gainEnv = gainEnvelopes[band];
+        double gainCoeff = (std::abs(targetGainDb) > std::abs(gainEnv))
+            ? attackCoeff : releaseCoeff;
+        gainEnv = gainCoeff * gainEnv + (1.0 - gainCoeff) * targetGainDb;
+
+        gainReductions[band] = (float)gainEnv;
     }
 
     double currentSampleRate = 44100.0;
@@ -216,7 +223,8 @@ private:
     float depthSmoothed = 0.0f;
 
     juce::dsp::LinkwitzRileyFilter<float> crossoverFilters[2][2];
-    double envelopes[numBands] = {-100.0, -100.0, -100.0};
+    double envelopes[numBands] = {-20.0, -15.0, -10.0};
+    double gainEnvelopes[numBands] = {0.0, 0.0, 0.0};
     float inputLevels[numBands] = {-100.0f, -100.0f, -100.0f};
     float gainReductions[numBands] = {0.0f, 0.0f, 0.0f};
 
