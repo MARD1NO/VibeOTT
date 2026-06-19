@@ -60,6 +60,7 @@ private:
     Knob lowGainSlider;
     Knob midGainSlider;
     Knob highGainSlider;
+    Knob outputGainSlider;
 
     struct ThresholdSlider
     {
@@ -68,6 +69,7 @@ private:
     };
 
     ThresholdSlider lowThresh, midThresh, highThresh;
+    ThresholdSlider lowRange, midRange, highRange;
 
     std::unique_ptr<BandMeter> lowMeter;
     std::unique_ptr<BandMeter> midMeter;

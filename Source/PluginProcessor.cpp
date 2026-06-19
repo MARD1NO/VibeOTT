@@ -13,10 +13,14 @@ VibeOTTProcessor::VibeOTTProcessor()
     lowGainParam = apvts.getRawParameterValue("LOW_GAIN");
     midGainParam = apvts.getRawParameterValue("MID_GAIN");
     highGainParam = apvts.getRawParameterValue("HIGH_GAIN");
+    outputGainParam = apvts.getRawParameterValue("OUTPUT_GAIN");
 
     lowThreshParam = apvts.getRawParameterValue("LOW_THRESH");
     midThreshParam = apvts.getRawParameterValue("MID_THRESH");
     highThreshParam = apvts.getRawParameterValue("HIGH_THRESH");
+    lowRangeParam = apvts.getRawParameterValue("LOW_RANGE");
+    midRangeParam = apvts.getRawParameterValue("MID_RANGE");
+    highRangeParam = apvts.getRawParameterValue("HIGH_RANGE");
 }
 
 VibeOTTProcessor::~VibeOTTProcessor() = default;
@@ -37,13 +41,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout VibeOTTProcessor::createPara
         juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.7f));
 
     auto threshRange = juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f, 2.0f);
+    auto rangeParam = juce::NormalisableRange<float>(0.0f, 48.0f, 0.1f);
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "LOW_THRESH", "Low Threshold", threshRange, -20.0f));
+        "LOW_THRESH", "Low Threshold", threshRange, -36.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "MID_THRESH", "Mid Threshold", threshRange, -15.0f));
+        "MID_THRESH", "Mid Threshold", threshRange, -36.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "HIGH_THRESH", "High Threshold", threshRange, -10.0f));
+        "HIGH_THRESH", "High Threshold", threshRange, -36.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        "LOW_RANGE", "Low Range", rangeParam, 18.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        "MID_RANGE", "Mid Range", rangeParam, 18.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        "HIGH_RANGE", "High Range", rangeParam, 18.0f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "LOW_GAIN", "Low Gain", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
@@ -51,6 +63,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout VibeOTTProcessor::createPara
         "MID_GAIN", "Mid Gain", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "HIGH_GAIN", "High Gain", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        "OUTPUT_GAIN", "Output Gain",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f));
 
     return { params.begin(), params.end() };
 }
@@ -88,6 +104,7 @@ void VibeOTTProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     compressor.setBandGain(0, lowGainParam->load());
     compressor.setBandGain(1, midGainParam->load());
     compressor.setBandGain(2, highGainParam->load());
+    compressor.setOutputGain(outputGainParam->load());
 
     compressor.setUpwardThreshold(0, lowThreshParam->load());
     compressor.setUpwardThreshold(1, midThreshParam->load());
@@ -95,6 +112,9 @@ void VibeOTTProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     compressor.setDownwardThreshold(0, lowThreshParam->load());
     compressor.setDownwardThreshold(1, midThreshParam->load());
     compressor.setDownwardThreshold(2, highThreshParam->load());
+    compressor.setThresholdRange(0, lowRangeParam->load());
+    compressor.setThresholdRange(1, midRangeParam->load());
+    compressor.setThresholdRange(2, highRangeParam->load());
 
     compressor.process(buffer);
 }

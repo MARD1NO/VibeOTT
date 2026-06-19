@@ -61,8 +61,10 @@ public:
     void setUpwardRatio(float r) { upwardRatioRaw = r; }
     void setDownwardRatio(float r) { downwardRatioRaw = r; }
     void setBandGain(int band, float g) { bandGains[band] = g; }
+    void setOutputGain(float g) { outputGainDb = g; }
     void setUpwardThreshold(int band, float t) { thresholds[band] = t; }
-    void setDownwardThreshold(int band, float t) { thresholds[band] = t; }
+    void setDownwardThreshold(int band, float t) { (void)t; }
+    void setThresholdRange(int band, float r) { thresholdRanges[band] = r; }
 
     const BandLevels& getBandLevels() const { return bandLevels; }
 
@@ -153,6 +155,7 @@ public:
 
                 float output = dry * (1.0f - depthSmoothed) + wet * depthSmoothed;
                 output *= fadeGain;
+                output *= juce::Decibels::decibelsToGain(outputGainDb, -100.0f);
 
                 buffer.setSample(ch, s, output);
             }
@@ -176,7 +179,7 @@ public:
         }
         for (int b = 0; b < numBands; ++b)
         {
-            envelopes[b] = thresholds[b];
+            envelopes[b] = thresholds[b] + thresholdRanges[b] * 0.5f;
             gainEnvelopes[b] = 0.0;
             inputLevels[b] = -100.0f;
             gainReductions[b] = 0.0f;
@@ -221,21 +224,22 @@ private:
         env = coeff * env + (1.0 - coeff) * inputDb;
 
         float envDb = (float)env;
-        float threshold = thresholds[band];
+        float lowBoundary = thresholds[band];
+        float highBoundary = thresholds[band] + thresholdRanges[band];
 
         float targetGainDb = 0.0f;
 
-        if (envDb < threshold && upRatio > 1.0f)
+        if (envDb < lowBoundary && upRatio > 1.0f)
         {
-            float underDb = threshold - envDb;
+            float underDb = lowBoundary - envDb;
             float upGain = underDb * (1.0f - 1.0f / upRatio);
             upGain = juce::jmin(upGain, 24.0f);
             targetGainDb += upGain;
         }
 
-        if (envDb > threshold && downRatio > 1.0f)
+        if (envDb > highBoundary && downRatio > 1.0f)
         {
-            float overDb = envDb - threshold;
+            float overDb = envDb - highBoundary;
             float downGain = overDb * (1.0f - 1.0f / downRatio);
             downGain = juce::jmin(downGain, 24.0f);
             targetGainDb -= downGain;
@@ -258,7 +262,9 @@ private:
     float upwardRatioRaw = 0.6f;
     float downwardRatioRaw = 0.7f;
     float bandGains[numBands] = {0.0f, 0.0f, 0.0f};
-    float thresholds[numBands] = {-20.0f, -15.0f, -10.0f};
+    float thresholds[numBands] = {-36.0f, -36.0f, -36.0f};
+    float thresholdRanges[numBands] = {18.0f, 18.0f, 18.0f};
+    float outputGainDb = 0.0f;
     float depthSmoothed = 0.0f;
 
     juce::dsp::LinkwitzRileyFilter<float> crossoverFilters[2][2];
