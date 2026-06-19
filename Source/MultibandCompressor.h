@@ -27,8 +27,10 @@ public:
 
         for (int ch = 0; ch < 2; ++ch)
         {
-            for (int i = 0; i < 4; ++i)
-                crossoverFilters[ch][i].prepare(spec);
+            crossoverFilters[ch][0].prepare(spec);
+            crossoverFilters[ch][0].setCutoffFrequency(200.0f);
+            crossoverFilters[ch][1].prepare(spec);
+            crossoverFilters[ch][1].setCutoffFrequency(2000.0f);
         }
 
         for (int b = 0; b < numBands; ++b)
@@ -139,7 +141,7 @@ public:
     void reset()
     {
         for (int ch = 0; ch < 2; ++ch)
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < 2; ++i)
                 crossoverFilters[ch][i].reset();
         for (int b = 0; b < numBands; ++b)
         {
@@ -161,10 +163,13 @@ private:
 
     void splitBands(int chIdx, float input, float& low, float& mid, float& high)
     {
-        low = crossoverFilters[chIdx][0].processSample(0, input);
-        float hpOut = crossoverFilters[chIdx][1].processSample(0, input);
-        mid = crossoverFilters[chIdx][2].processSample(0, hpOut);
-        high = crossoverFilters[chIdx][3].processSample(0, hpOut);
+        float lowLp = crossoverFilters[chIdx][0].processSample(0, input);
+        low = lowLp;
+        float hpOut = input - lowLp;
+
+        float midLp = crossoverFilters[chIdx][1].processSample(0, hpOut);
+        mid = midLp;
+        high = hpOut - midLp;
     }
 
     float processBandCompression(int band, float sample, float upRatio, float downRatio)
@@ -219,7 +224,7 @@ private:
     float depthSmoothed = 0.0f;
     float outputSmoothed = 1.0f;
 
-    juce::dsp::LinkwitzRileyFilter<float> crossoverFilters[2][4];
+    juce::dsp::LinkwitzRileyFilter<float> crossoverFilters[2][2];
     double envelopes[numBands] = {-100.0, -100.0, -100.0};
     float inputLevels[numBands] = {-100.0f, -100.0f, -100.0f};
     float gainReductions[numBands] = {0.0f, 0.0f, 0.0f};
