@@ -20,6 +20,7 @@ public:
     void prepare(double sampleRate, int /*blockSize*/)
     {
         currentSampleRate = sampleRate;
+
         juce::dsp::ProcessSpec spec;
         spec.sampleRate = sampleRate;
         spec.maximumBlockSize = 512;
@@ -33,16 +34,31 @@ public:
             crossoverFilters[ch][1].setCutoffFrequency(2000.0f);
         }
 
+        delayBufferSize = (int)(0.02 * sampleRate);
+        if (delayBufferSize < 1) delayBufferSize = 1;
+
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            for (int b = 0; b < numBands; ++b)
+            {
+                delayBuffer[ch][b].assign(delayBufferSize, 0.0f);
+            }
+        }
+        delayWriteIndex = 0;
+
         for (int b = 0; b < numBands; ++b)
         {
-            envelopes[b] = thresholds[b];
+            envelopes[b] = 0.0;
             gainEnvelopes[b] = 0.0;
-            inputLevels[b] = thresholds[b];
+            inputLevels[b] = -100.0f;
             gainReductions[b] = 0.0f;
         }
 
         depthSmoothed = 0.0f;
+        firstBlock = true;
     }
+
+    int getLatencySamples() const { return delayBufferSize; }
 
     void setDepth(float d) { depth = d; }
     void setUpwardRatio(float r) { upwardRatioRaw = r; }
@@ -57,6 +73,17 @@ public:
     {
         const int numSamples = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
+
+        if (firstBlock)
+        {
+            for (int b = 0; b < numBands; ++b)
+            {
+                envelopes[b] = thresholds[b];
+                gainEnvelopes[b] = 0.0;
+            }
+            depthSmoothed = 0.0f;
+            firstBlock = false;
+        }
 
         float upwardRatio = scaleRatio(upwardRatioRaw);
         float downwardRatio = scaleRatio(downwardRatioRaw);
@@ -81,28 +108,35 @@ public:
             }
 
             float bandGainsDb[numBands] = {0.0f, 0.0f, 0.0f};
-            float bandInputs[numBands]  = {0.0f, 0.0f, 0.0f};
 
+            float bandSampleAvg[numBands];
             for (int b = 0; b < numBands; ++b)
             {
-                float bandSample = 0.0f;
+                float sum = 0.0f;
                 int activeCh = 0;
                 for (int ch = 0; ch < numChannels; ++ch)
                 {
                     const int chIdx = juce::jmin(ch, 1);
-                    bandSample += bandSamples[chIdx][b];
+                    sum += bandSamples[chIdx][b];
                     ++activeCh;
                 }
-                bandSample /= (float)activeCh;
+                bandSampleAvg[b] = sum / (float)activeCh;
 
-                bandInputs[b] = bandSample;
-
-                computeBandGain(b, bandSample, upwardRatio, downwardRatio);
+                computeBandGain(b, bandSampleAvg[b], upwardRatio, downwardRatio);
                 bandGainsDb[b] = gainReductions[b];
 
-                float inDb = juce::Decibels::gainToDecibels(std::abs(bandSample), -100.0f);
+                float inDb = juce::Decibels::gainToDecibels(std::abs(bandSampleAvg[b]), -100.0f);
                 inputLevels[b] = juce::jmax(inputLevels[b] * 0.9f, inDb);
             }
+
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                for (int b = 0; b < numBands; ++b)
+                    delayBuffer[ch][b][delayWriteIndex] = bandSamples[ch][b];
+            }
+            delayWriteIndex = (delayWriteIndex + 1) % delayBufferSize;
+
+            int readIndex = (delayWriteIndex - delayBufferSize + delayBufferSize) % delayBufferSize;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -115,11 +149,15 @@ public:
                 float midGainCompLin  = juce::Decibels::decibelsToGain(bandGainsDb[1], -100.0f);
                 float highGainCompLin = juce::Decibels::decibelsToGain(bandGainsDb[2], -100.0f);
 
-                float dry = bandSamples[chIdx][0] + bandSamples[chIdx][1] + bandSamples[chIdx][2];
+                float delayedLow  = delayBuffer[chIdx][0][readIndex];
+                float delayedMid  = delayBuffer[chIdx][1][readIndex];
+                float delayedHigh = delayBuffer[chIdx][2][readIndex];
 
-                float lowOut  = bandSamples[chIdx][0] * lowGainCompLin * lowGainLin;
-                float midOut  = bandSamples[chIdx][1] * midGainCompLin * midGainLin;
-                float highOut = bandSamples[chIdx][2] * highGainCompLin * highGainLin;
+                float dry = delayedLow + delayedMid + delayedHigh;
+
+                float lowOut  = delayedLow * lowGainCompLin * lowGainLin;
+                float midOut  = delayedMid * midGainCompLin * midGainLin;
+                float highOut = delayedHigh * highGainCompLin * highGainLin;
 
                 float wet = lowOut + midOut + highOut;
 
@@ -139,16 +177,22 @@ public:
     void reset()
     {
         for (int ch = 0; ch < 2; ++ch)
+        {
             for (int i = 0; i < 2; ++i)
                 crossoverFilters[ch][i].reset();
+            for (int b = 0; b < numBands; ++b)
+                std::fill(delayBuffer[ch][b].begin(), delayBuffer[ch][b].end(), 0.0f);
+        }
         for (int b = 0; b < numBands; ++b)
         {
             envelopes[b] = thresholds[b];
             gainEnvelopes[b] = 0.0;
-            inputLevels[b] = thresholds[b];
+            inputLevels[b] = -100.0f;
             gainReductions[b] = 0.0f;
         }
         depthSmoothed = 0.0f;
+        delayWriteIndex = 0;
+        firstBlock = true;
     }
 
 private:
@@ -215,18 +259,24 @@ private:
     }
 
     double currentSampleRate = 44100.0;
+    int delayBufferSize = 1024;
+    int delayWriteIndex = 0;
+
     float depth = 0.5f;
     float upwardRatioRaw = 0.6f;
     float downwardRatioRaw = 0.7f;
     float bandGains[numBands] = {0.0f, 0.0f, 0.0f};
     float thresholds[numBands] = {-20.0f, -15.0f, -10.0f};
     float depthSmoothed = 0.0f;
+    bool firstBlock = true;
 
     juce::dsp::LinkwitzRileyFilter<float> crossoverFilters[2][2];
     double envelopes[numBands] = {-20.0, -15.0, -10.0};
     double gainEnvelopes[numBands] = {0.0, 0.0, 0.0};
     float inputLevels[numBands] = {-100.0f, -100.0f, -100.0f};
     float gainReductions[numBands] = {0.0f, 0.0f, 0.0f};
+
+    std::vector<float> delayBuffer[2][numBands];
 
     BandLevels bandLevels;
 };

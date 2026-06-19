@@ -58,6 +58,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout VibeOTTProcessor::createPara
 void VibeOTTProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     compressor.prepare(sampleRate, samplesPerBlock);
+    setLatencySamples(compressor.getLatencySamples());
 }
 
 void VibeOTTProcessor::releaseResources()
