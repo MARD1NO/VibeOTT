@@ -32,7 +32,6 @@ private:
     };
 
     Knob depthSlider;
-    Knob timeSlider;
     Knob upwardRatioSlider;
     Knob downwardRatioSlider;
     Knob lowGainSlider;

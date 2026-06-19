@@ -64,7 +64,6 @@ VibeOTTEditor::VibeOTTEditor(VibeOTTProcessor& p)
     setLookAndFeel(&ottLookAndFeel);
 
     depthSlider = createKnob("DEPTH");
-    timeSlider = createKnob("TIME");
     upwardRatioSlider = createKnob("UPWARD_RATIO");
     downwardRatioSlider = createKnob("DOWNWARD_RATIO");
     lowGainSlider = createKnob("LOW_GAIN");
@@ -72,7 +71,6 @@ VibeOTTEditor::VibeOTTEditor(VibeOTTProcessor& p)
     highGainSlider = createKnob("HIGH_GAIN");
 
     depthSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::knobFill.getARGB());
-    timeSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::knobFill.getARGB());
     upwardRatioSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::upColour.getARGB());
     downwardRatioSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::downColour.getARGB());
     lowGainSlider.slider->getProperties().set("knobColour", (juce::int64)OTT::lowColour.getARGB());
@@ -126,7 +124,6 @@ void VibeOTTEditor::paint(juce::Graphics& g)
     struct LabelInfo { const char* name; juce::Colour colour; };
     LabelInfo labels[] = {
         { "DEPTH",  OTT::knobFill },
-        { "TIME",   OTT::knobFill },
         { "UP",     OTT::upColour },
         { "DOWN",   OTT::downColour },
         { "LOW",    OTT::lowColour },
@@ -134,7 +131,7 @@ void VibeOTTEditor::paint(juce::Graphics& g)
         { "HIGH",   OTT::highColour },
     };
 
-    for (int i = 0; i < 7; ++i)
+    for (int i = 0; i < 6; ++i)
     {
         int x = startX + i * (knobW + spacing);
         g.setColour(labels[i].colour);
@@ -156,11 +153,10 @@ void VibeOTTEditor::resized()
     int secondRowY = 150;
 
     depthSlider.slider->setBounds(startX + 0 * (knobSize + spacing), knobY, knobSize, knobSize);
-    timeSlider.slider->setBounds(startX + 1 * (knobSize + spacing), knobY, knobSize, knobSize);
-    upwardRatioSlider.slider->setBounds(startX + 2 * (knobSize + spacing), knobY, knobSize, knobSize);
-    downwardRatioSlider.slider->setBounds(startX + 3 * (knobSize + spacing), knobY, knobSize, knobSize);
+    upwardRatioSlider.slider->setBounds(startX + 1 * (knobSize + spacing), knobY, knobSize, knobSize);
+    downwardRatioSlider.slider->setBounds(startX + 2 * (knobSize + spacing), knobY, knobSize, knobSize);
 
-    lowGainSlider.slider->setBounds(startX + 4 * (knobSize + spacing), knobY, knobSize, knobSize);
-    midGainSlider.slider->setBounds(startX + 5 * (knobSize + spacing), knobY, knobSize, knobSize);
-    highGainSlider.slider->setBounds(startX + 6 * (knobSize + spacing), knobY, knobSize, knobSize);
+    lowGainSlider.slider->setBounds(startX + 3 * (knobSize + spacing), knobY, knobSize, knobSize);
+    midGainSlider.slider->setBounds(startX + 4 * (knobSize + spacing), knobY, knobSize, knobSize);
+    highGainSlider.slider->setBounds(startX + 5 * (knobSize + spacing), knobY, knobSize, knobSize);
 }

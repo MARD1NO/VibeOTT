@@ -41,7 +41,6 @@ private:
     OTTMultibandCompressor compressor;
 
     std::atomic<float>* depthParam = nullptr;
-    std::atomic<float>* timeParam = nullptr;
     std::atomic<float>* upwardRatioParam = nullptr;
     std::atomic<float>* downwardRatioParam = nullptr;
     std::atomic<float>* lowGainParam = nullptr;

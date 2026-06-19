@@ -8,7 +8,6 @@ VibeOTTProcessor::VibeOTTProcessor()
       apvts(*this, nullptr, "Parameters", createParameterLayout())
 {
     depthParam = apvts.getRawParameterValue("DEPTH");
-    timeParam = apvts.getRawParameterValue("TIME");
     upwardRatioParam = apvts.getRawParameterValue("UPWARD_RATIO");
     downwardRatioParam = apvts.getRawParameterValue("DOWNWARD_RATIO");
     lowGainParam = apvts.getRawParameterValue("LOW_GAIN");
@@ -24,9 +23,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout VibeOTTProcessor::createPara
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "DEPTH", "Depth", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 1.0f));
-
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        "TIME", "Time", juce::NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.5f));
 
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         "UPWARD_RATIO", "Upward Ratio",
@@ -78,7 +74,6 @@ void VibeOTTProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     juce::ScopedNoDenormals noDenormals;
 
     compressor.setDepth(depthParam->load());
-    compressor.setTime(timeParam->load());
     compressor.setUpwardRatio(upwardRatioParam->load());
     compressor.setDownwardRatio(downwardRatioParam->load());
     compressor.setBandGain(0, lowGainParam->load());
