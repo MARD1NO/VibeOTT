@@ -17,11 +17,9 @@ class BandMeter : public juce::Component,
 {
 public:
     BandMeter(VibeOTTProcessor& p, int bandIndex, juce::Colour colour);
+    ~BandMeter() override { stopTimer(); }
 
     void paint(juce::Graphics&) override;
-
-    float getLevel() const { return level; }
-    float getGainReduction() const { return gainReduction; }
 
 private:
     void timerCallback() override;
@@ -62,21 +60,11 @@ private:
     Knob highGainSlider;
     Knob outputGainSlider;
 
-    struct ThresholdSlider
-    {
-        std::unique_ptr<juce::Slider> slider;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
-    };
-
-    ThresholdSlider lowThresh, midThresh, highThresh;
-    ThresholdSlider lowRange, midRange, highRange;
-
     std::unique_ptr<BandMeter> lowMeter;
     std::unique_ptr<BandMeter> midMeter;
     std::unique_ptr<BandMeter> highMeter;
 
     Knob createKnob(const juce::String& paramId, const juce::String& labelText);
-    ThresholdSlider createThresholdSlider(const juce::String& paramId);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VibeOTTEditor)
 };
