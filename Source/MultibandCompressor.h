@@ -9,18 +9,15 @@
 
 namespace OTT
 {
-    static constexpr float ENVELOPE_DECAY_RATE    = 2.49999994e-5f;
-    static constexpr float COMPRESSION_SCALING   = 0.519999981f;
-    static constexpr float UPWARD_MULT_1         = 2.27304697f;
-    static constexpr float UPWARD_MULT_2         = 0.927524984f;
-    static constexpr int   DELAY_BUFFER_SIZE      = 32768;
-    static constexpr int   NUM_BANDS             = 3;
-    static constexpr double NOISE_FLOOR          = 1e-25;
-    static constexpr double LOG_SCALE_FACTOR     = 9.21034037;
-    static constexpr double UNITY_GAIN           = 1.0;
-    static constexpr double MIN_GAIN_THRESHOLD   = 0.01;
-    static constexpr double MAX_COMP_RATIO      = 36.0;
-    static constexpr double NEGATIVE_THRESHOLD  = -0.001;
+    static constexpr float COMPRESSION_SCALING = 0.519999981f;
+    static constexpr int   DELAY_BUFFER_SIZE   = 32768;
+    static constexpr int   NUM_BANDS          = 3;
+    static constexpr double NOISE_FLOOR       = 1e-25;
+    static constexpr double LOG_SCALE_FACTOR  = 9.21034037;
+    static constexpr double UNITY_GAIN        = 1.0;
+    static constexpr double MIN_GAIN_THRESHOLD = 0.01;
+    static constexpr double MAX_COMP_RATIO    = 36.0;
+    static constexpr double NEGATIVE_THRESHOLD = -0.001;
     static constexpr double ENVELOPE_TIME_CONST = 0.115;
 }
 
@@ -32,12 +29,11 @@ struct BiquadFilter
     float inputStore = 0.0f;
     float intermediate = 0.0f;
     float output = 0.0f;
-    float processedInput = 0.0f;
 
     void initialize()
     {
         state1 = state2 = 0.0f;
-        inputStore = intermediate = output = processedInput = 0.0f;
+        inputStore = intermediate = output = 0.0f;
         b0 = 1.0f; b1 = 0.0f;
         coeffA1 = coeffA2 = coeffB2 = 0.0f;
     }
@@ -63,8 +59,6 @@ struct BiquadFilter
 
         float temp1 = w1 * coeffA1;
         float procInput = input - w2;
-        processedInput = procInput;
-
         float temp2 = procInput * coeffA2;
         float feedback = procInput * coeffB2;
 
@@ -135,7 +129,7 @@ struct CompressorState
         rmsSmoothingCoeff = attackCoeff * 0.5;
     }
 
-    double process(double inputPower, double outputLevel, double bandGain, double timeConstant)
+    double process(double inputPower, double timeConstant)
     {
         double rmsDiff = rmsSmoother - inputPower;
         rmsDiff *= rmsSmoothingCoeff;
@@ -144,7 +138,7 @@ struct CompressorState
         double envelopeExp = std::exp(logEnvelope * timeConstant);
         double envelopeSqrt = std::sqrt(std::abs(rmsSmoother));
 
-        double finalGainReduction;
+        double gainMultiplier;
 
         if (ratioState <= OTT::NEGATIVE_THRESHOLD)
         {
@@ -169,22 +163,22 @@ struct CompressorState
             {
                 double releaseFactor = releaseTime - OTT::UNITY_GAIN;
                 double upwardGain = releaseFactor * compressedLevel * timeConstant;
-                finalGainReduction = std::exp(upwardGain);
-                if (finalGainReduction <= OTT::MIN_GAIN_THRESHOLD)
-                    finalGainReduction = OTT::MIN_GAIN_THRESHOLD;
+                gainMultiplier = std::exp(upwardGain);
+                if (gainMultiplier <= OTT::MIN_GAIN_THRESHOLD)
+                    gainMultiplier = OTT::MIN_GAIN_THRESHOLD;
             }
             else
             {
                 double attackFactor = compressedLevel - thresholdValue;
                 double downwardGain = attackFactor * timeConstant;
-                double gainMultiplier = std::exp(downwardGain);
-                double upwardFactor = gainMultiplier * upwardRatio;
+                double mult = std::exp(downwardGain);
+                double upwardFactor = mult * upwardRatio;
                 processedEnvelope = std::exp(downwardGain);
                 if (upwardFactor <= OTT::MAX_COMP_RATIO)
-                    finalGainReduction = upwardFactor * timeConstant;
+                    gainMultiplier = upwardFactor * timeConstant;
                 else
-                    finalGainReduction = OTT::MAX_COMP_RATIO * timeConstant;
-                finalGainReduction = std::exp(finalGainReduction);
+                    gainMultiplier = OTT::MAX_COMP_RATIO * timeConstant;
+                gainMultiplier = std::exp(gainMultiplier);
             }
         }
         else
@@ -215,24 +209,25 @@ struct CompressorState
                 processedEnvelope = std::exp(expansionGain);
                 double releaseGain = releaseTime - OTT::UNITY_GAIN;
                 double finalExpansion = releaseGain * thresholdDiff * timeConstant;
-                finalGainReduction = std::exp(finalExpansion);
-                if (finalGainReduction <= OTT::MIN_GAIN_THRESHOLD)
-                    finalGainReduction = OTT::MIN_GAIN_THRESHOLD;
+                gainMultiplier = std::exp(finalExpansion);
+                if (gainMultiplier <= OTT::MIN_GAIN_THRESHOLD)
+                    gainMultiplier = OTT::MIN_GAIN_THRESHOLD;
             }
             else
             {
                 if (thresholdDiff <= -OTT::NEGATIVE_THRESHOLD)
                 {
                     double standardComp = thresholdDiff * timeConstant;
-                    finalGainReduction = std::exp(standardComp);
+                    gainMultiplier = std::exp(standardComp);
                 }
                 else
-                    finalGainReduction = OTT::MIN_GAIN_THRESHOLD;
+                    gainMultiplier = OTT::MIN_GAIN_THRESHOLD;
             }
         }
 
-        envelopeOutput = finalGainReduction;
-        return finalGainReduction * outputLevel * bandGain;
+        gainMultiplier = juce::jlimit(0.0, 100.0, gainMultiplier);
+        envelopeOutput = gainMultiplier;
+        return gainMultiplier;
     }
 
     double getGainReductionDb() const
@@ -271,19 +266,13 @@ public:
 
         bufferIndex = 0;
         writeIndex = 0;
-        peakEnvelopeLeft = 0.0f;
-        peakEnvelopeRight = 0.0f;
         depthSmoothed = 0.0f;
         upwardSmoothed = 0.0f;
         outputSmoothed = 1.0f;
-        finalGain = 0.0f;
         fadeSamples = 0;
     }
 
-    int getLatencySamples() const
-    {
-        return OTT::DELAY_BUFFER_SIZE;
-    }
+    int getLatencySamples() const { return OTT::DELAY_BUFFER_SIZE; }
 
     void setDepth(float d) { depth = d; }
     void setUpwardRatio(float r) { upwardRatio = r; }
@@ -299,48 +288,20 @@ public:
         const int numChannels = buffer.getNumChannels();
         const int rightChIdx = (numChannels > 1) ? 1 : 0;
 
-        float* inputs[2];
-        float* outputs[2];
-        inputs[0] = buffer.getWritePointer(0);
-        inputs[1] = buffer.getWritePointer(rightChIdx);
-        outputs[0] = buffer.getWritePointer(0);
-        outputs[1] = buffer.getWritePointer(rightChIdx);
-
         if (numSamples <= 0) return;
 
-        for (int s = 0; s < numSamples; ++s)
-        {
-            float leftSample = inputs[0][s];
-            if (leftSample < peakEnvelopeLeft)
-            {
-                peakEnvelopeLeft -= OTT::ENVELOPE_DECAY_RATE;
-                if (peakEnvelopeLeft < 0.0f) peakEnvelopeLeft = 0.0f;
-            }
-            else
-                peakEnvelopeLeft = leftSample;
-
-            float rightSample = inputs[1][s];
-            if (rightSample < peakEnvelopeRight)
-            {
-                peakEnvelopeRight -= OTT::ENVELOPE_DECAY_RATE;
-                if (peakEnvelopeRight < 0.0f) peakEnvelopeRight = 0.0f;
-            }
-            else
-                peakEnvelopeRight = rightSample;
-        }
+        float* inLeft  = buffer.getWritePointer(0);
+        float* inRight = buffer.getWritePointer(rightChIdx);
 
         for (int s = 0; s < numSamples; ++s)
         {
-            float depthTarget = depth;
-            depthSmoothed = (depthTarget - depthSmoothed) * 0.01f + depthSmoothed;
-
-            float upwardTarget = upwardRatio;
-            upwardSmoothed = (upwardTarget - upwardSmoothed) * 0.01f + upwardSmoothed;
-            currentGain = upwardSmoothed;
+            depthSmoothed += 0.01f * (depth - depthSmoothed);
+            upwardSmoothed += 0.01f * (upwardRatio - upwardSmoothed);
+            outputSmoothed += 0.005f * (outputGain - outputSmoothed);
 
             float processingGain = depthSmoothed * OTT::COMPRESSION_SCALING + 1.0f;
-            float leftInput = currentGain * inputs[0][s];
-            float rightInput = currentGain * inputs[1][s];
+            float leftInput  = inLeft[s];
+            float rightInput = inRight[s];
 
             float lowLeft  = processFilterAndGetLP(0, leftInput)  * processingGain;
             float lowRight = processFilterAndGetLP(1, rightInput) * processingGain;
@@ -349,18 +310,13 @@ public:
             float highLeft  = processFilterAndGetHP(4, leftInput)  * processingGain;
             float highRight = processFilterAndGetHP(5, rightInput) * processingGain;
 
-            bandBuffers[0][s] = lowLeft;
-            bandBuffers[1][s] = lowRight;
-            bandBuffers[2][s] = midLeft;
-            bandBuffers[3][s] = midRight;
-            bandBuffers[4][s] = highLeft;
-            bandBuffers[5][s] = highRight;
-
             int bufPos = bufferIndex;
-            for (int band = 0; band < 6; ++band)
-                delayBuffers[band][bufPos] = bandBuffers[band][s];
-            delayBuffers[6][bufPos] = inputs[0][s];
-            delayBuffers[7][bufPos] = inputs[1][s];
+            delayBuffers[0][bufPos] = lowLeft;
+            delayBuffers[1][bufPos] = lowRight;
+            delayBuffers[2][bufPos] = midLeft;
+            delayBuffers[3][bufPos] = midRight;
+            delayBuffers[4][bufPos] = highLeft;
+            delayBuffers[5][bufPos] = highRight;
 
             bufferIndex++;
             if (bufferIndex >= OTT::DELAY_BUFFER_SIZE)
@@ -374,9 +330,6 @@ public:
 
         for (int s = 0; s < numSamples; ++s)
         {
-            outputSmoothed = (outputGain - outputSmoothed) * 0.005f + outputSmoothed;
-            finalGain = outputSmoothed;
-
             int readIdx = writeIndex;
 
             float lowLeft   = delayBuffers[0][readIdx];
@@ -390,26 +343,35 @@ public:
             float midPower  = midLeft * midLeft + midRight * midRight + (float)OTT::NOISE_FLOOR;
             float highPower = highLeft * highLeft + highRight * highRight + (float)OTT::NOISE_FLOOR;
 
-            float lowGR  = (float)compressors[0].process(lowPower, finalGain, bandGains[0], OTT::ENVELOPE_TIME_CONST);
-            float midGR  = (float)compressors[1].process(midPower, finalGain, bandGains[1], OTT::ENVELOPE_TIME_CONST);
-            float highGR = (float)compressors[2].process(highPower, finalGain, bandGains[2], OTT::ENVELOPE_TIME_CONST);
+            float lowGR  = (float)compressors[0].process(lowPower,  OTT::ENVELOPE_TIME_CONST);
+            float midGR  = (float)compressors[1].process(midPower,  OTT::ENVELOPE_TIME_CONST);
+            float highGR = (float)compressors[2].process(highPower, OTT::ENVELOPE_TIME_CONST);
 
             lowLeft *= lowGR;   lowRight *= lowGR;
             midLeft *= midGR;   midRight *= midGR;
             highLeft *= highGR; highRight *= highGR;
 
             float fadeGain = 1.0f;
-            if (fadeSamples < OTT::DELAY_BUFFER_SIZE)
+            if (fadeSamples < 1024)
             {
-                fadeGain = (float)fadeSamples / (float)OTT::DELAY_BUFFER_SIZE;
+                fadeGain = (float)fadeSamples / 1024.0f;
                 fadeSamples++;
             }
 
-            float finalLeft  = (lowLeft + midLeft + highLeft) * finalGain * fadeGain;
-            float finalRight = (lowRight + midRight + highRight) * finalGain * fadeGain;
+            float bandGainLin0 = bandGains[0] * 2.0f;
+            float bandGainLin1 = bandGains[1] * 2.0f;
+            float bandGainLin2 = bandGains[2] * 2.0f;
 
-            outputs[0][s] = finalLeft;
-            outputs[rightChIdx][s] = finalRight;
+            float outLin = juce::Decibels::decibelsToGain(outputSmoothed * 48.0f - 24.0f, -100.0f);
+
+            float finalLeft  = (lowLeft * bandGainLin0 + midLeft * bandGainLin1 + highLeft * bandGainLin2) * outLin * fadeGain;
+            float finalRight = (lowRight * bandGainLin0 + midRight * bandGainLin1 + highRight * bandGainLin2) * outLin * fadeGain;
+
+            finalLeft  = juce::jlimit(-2.0f, 2.0f, finalLeft);
+            finalRight = juce::jlimit(-2.0f, 2.0f, finalRight);
+
+            inLeft[s] = finalLeft;
+            inRight[s] = finalRight;
 
             writeIndex++;
             if (writeIndex >= OTT::DELAY_BUFFER_SIZE)
@@ -436,12 +398,9 @@ public:
         }
         bufferIndex = 0;
         writeIndex = 0;
-        peakEnvelopeLeft = 0.0f;
-        peakEnvelopeRight = 0.0f;
         depthSmoothed = 0.0f;
         upwardSmoothed = 0.0f;
         outputSmoothed = 1.0f;
-        finalGain = 0.0f;
         fadeSamples = 0;
     }
 
@@ -495,20 +454,15 @@ private:
     float upwardRatio = 0.6f;
     float downwardRatio = 0.7f;
     float bandGains[numBands] = {0.5f, 0.5f, 0.5f};
-    float outputGain = 0.0f;
+    float outputGain = 0.5f;
 
     float depthSmoothed = 0.0f;
     float upwardSmoothed = 0.0f;
     float outputSmoothed = 1.0f;
-    float finalGain = 0.0f;
-    float currentGain = 0.0f;
-
-    float peakEnvelopeLeft = 0.0f;
-    float peakEnvelopeRight = 0.0f;
+    int fadeSamples = 0;
 
     int bufferIndex = 0;
     int writeIndex = 0;
-    int fadeSamples = 0;
 
     BiquadFilter crossoverFilters[6];
     CompressorState compressors[numBands];
