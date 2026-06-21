@@ -36,13 +36,6 @@ public:
             lrFilters[ch][1].setCutoffFrequency(2000.0f);
         }
 
-        delaySize = 1024;
-        for (int ch = 0; ch < 2; ++ch)
-            for (int b = 0; b < numBands; ++b)
-                delayLines[ch][b].assign(delaySize, 0.0f);
-
-        delayWriteIdx = 0;
-
         for (int b = 0; b < numBands; ++b)
         {
             envDb[b]          = thresholds[b];
@@ -52,10 +45,9 @@ public:
 
         depthSmoothed  = 0.0f;
         outputSmoothed = 0.5f;
-        fadeCount      = 0;
     }
 
-    int getLatencySamples() const { return delaySize; }
+    int getLatencySamples() const { return 0; }
 
     void setDepth(float d)       { depth = d; }
     void setUpwardRatio(float r) { upRatioParam = r; }
@@ -79,13 +71,11 @@ public:
         float upRatio   = juce::jmax(1.0f, upRatioParam   * 2.0f);
         float downRatio = juce::jmax(1.0f, downRatioParam * 2.0f);
 
-        float outGainLin = juce::Decibels::decibelsToGain(outputGainParam * 48.0f - 24.0f, -100.0f);
-
         for (int s = 0; s < numSamples; ++s)
         {
             depthSmoothed  += 0.005f * (depth - depthSmoothed);
             outputSmoothed += 0.005f * (outputGainParam - outputSmoothed);
-            outGainLin = juce::Decibels::decibelsToGain(outputSmoothed * 48.0f - 24.0f, -100.0f);
+            float outGainLin = juce::Decibels::decibelsToGain(outputSmoothed * 48.0f - 24.0f, -100.0f);
 
             float inL = dataL[s];
             float inR = dataR[s];
@@ -94,7 +84,8 @@ public:
             splitBands(0, inL, bands[0][0], bands[0][1], bands[0][2]);
             splitBands(1, inR, bands[1][0], bands[1][1], bands[1][2]);
 
-            float gainDb[numBands];
+            float outL = 0.0f, outR = 0.0f;
+
             for (int b = 0; b < numBands; ++b)
             {
                 float power = bands[0][b] * bands[0][b] + bands[1][b] * bands[1][b] + 1e-12f;
@@ -130,39 +121,18 @@ public:
                 double gC = (std::abs(targetGain) > std::abs(smoothedGainDb[b])) ? atkC : relC;
                 smoothedGainDb[b] = (float)(gC * smoothedGainDb[b] + (1.0 - gC) * targetGain);
 
-                gainDb[b] = smoothedGainDb[b];
+                float compLin = juce::Decibels::decibelsToGain(smoothedGainDb[b], -100.0f);
+                float bandGainLin = juce::Decibels::decibelsToGain(bandGainParam[b] * 24.0f - 12.0f, -100.0f);
 
-                delayLines[0][b][delayWriteIdx] = bands[0][b];
-                delayLines[1][b][delayWriteIdx] = bands[1][b];
+                outL += bands[0][b] * compLin * bandGainLin;
+                outR += bands[1][b] * compLin * bandGainLin;
             }
 
-            delayWriteIdx = (delayWriteIdx + 1) % delaySize;
-            int readIdx   = delayWriteIdx;
+            float finalL = inL * (1.0f - depthSmoothed) + outL * depthSmoothed;
+            float finalR = inR * (1.0f - depthSmoothed) + outR * depthSmoothed;
 
-            float fade = (fadeCount < delaySize) ? (float)fadeCount / (float)delaySize : 1.0f;
-            if (fadeCount < delaySize) ++fadeCount;
-
-            float bandGainLin[numBands];
-            for (int b = 0; b < numBands; ++b)
-                bandGainLin[b] = juce::Decibels::decibelsToGain(bandGainParam[b] * 24.0f - 12.0f, -100.0f);
-
-            float outL = 0.0f, outR = 0.0f;
-            float dryL = inL, dryR = inR;
-
-            for (int b = 0; b < numBands; ++b)
-            {
-                float compLin = juce::Decibels::decibelsToGain(gainDb[b], -100.0f);
-                float wL = delayLines[0][b][readIdx] * compLin * bandGainLin[b];
-                float wR = delayLines[1][b][readIdx] * compLin * bandGainLin[b];
-                outL += wL;
-                outR += wR;
-            }
-
-            float finalL = dryL * (1.0f - depthSmoothed) + outL * depthSmoothed;
-            float finalR = dryR * (1.0f - depthSmoothed) + outR * depthSmoothed;
-
-            finalL *= outGainLin * fade;
-            finalR *= outGainLin * fade;
+            finalL *= outGainLin;
+            finalR *= outGainLin;
 
             finalL = juce::jlimit(-2.0f, 2.0f, finalL);
             finalR = juce::jlimit(-2.0f, 2.0f, finalR);
@@ -181,12 +151,8 @@ public:
     void reset()
     {
         for (int ch = 0; ch < 2; ++ch)
-        {
             for (int i = 0; i < 2; ++i)
                 lrFilters[ch][i].reset();
-            for (int b = 0; b < numBands; ++b)
-                std::fill(delayLines[ch][b].begin(), delayLines[ch][b].end(), 0.0f);
-        }
         for (int b = 0; b < numBands; ++b)
         {
             envDb[b]          = thresholds[b];
@@ -195,8 +161,6 @@ public:
         }
         depthSmoothed  = 0.0f;
         outputSmoothed = 0.5f;
-        fadeCount      = 0;
-        delayWriteIdx  = 0;
     }
 
 private:
@@ -226,13 +190,8 @@ private:
 
     float depthSmoothed  = 0.0f;
     float outputSmoothed = 0.5f;
-    int   fadeCount      = 0;
-
-    int delaySize     = 1024;
-    int delayWriteIdx = 0;
 
     juce::dsp::LinkwitzRileyFilter<float> lrFilters[2][2];
-    std::vector<float> delayLines[2][numBands];
 
     BandLevels bandLevels;
 };
