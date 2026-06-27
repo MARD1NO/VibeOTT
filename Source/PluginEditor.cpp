@@ -67,7 +67,7 @@ void BandMeter::timerCallback()
     float newLevel = levels.inputDb[band];
     float newGR = levels.gainReductionDb[band];
 
-    level = juce::jmax(level * 0.85f, newLevel);
+    level = juce::jmax(level - 0.5f, newLevel);
     gainReduction = gainReduction * 0.8f + newGR * 0.2f;
     if (newLevel > peakLevel) peakLevel = newLevel;
     else peakLevel = juce::jmax(-100.0f, peakLevel - 0.5f);

@@ -38,6 +38,14 @@ public:
 
         for (int b = 0; b < numBands; ++b)
         {
+            double atkMs = (b == 0) ? 10.0 : (b == 1) ? 8.0 : 5.0;
+            double relMs = (b == 0) ? 100.0 : (b == 1) ? 80.0 : 50.0;
+            atkCoeff[b] = std::exp(-1.0 / (atkMs * 0.001 * sampleRate));
+            relCoeff[b] = std::exp(-1.0 / (relMs * 0.001 * sampleRate));
+        }
+
+        for (int b = 0; b < numBands; ++b)
+        {
             envDb[b]          = thresholds[b];
             smoothedGainDb[b] = 0.0f;
             inputLevelDb[b]   = -100.0f;
@@ -70,6 +78,7 @@ public:
 
         float upRatio   = juce::jmax(1.0f, upRatioParam   * 2.0f);
         float downRatio = juce::jmax(1.0f, downRatioParam * 2.0f);
+        const bool isMono = (numChannels < 2);
 
         for (int s = 0; s < numSamples; ++s)
         {
@@ -78,11 +87,19 @@ public:
             float outGainLin = juce::Decibels::decibelsToGain(outputSmoothed * 48.0f - 24.0f, -100.0f);
 
             float inL = dataL[s];
-            float inR = dataR[s];
+            float inR = isMono ? inL : dataR[s];
 
             float bands[2][numBands];
             splitBands(0, inL, bands[0][0], bands[0][1], bands[0][2]);
-            splitBands(1, inR, bands[1][0], bands[1][1], bands[1][2]);
+            if (isMono)
+            {
+                for (int b = 0; b < numBands; ++b)
+                    bands[1][b] = bands[0][b];
+            }
+            else
+            {
+                splitBands(1, inR, bands[1][0], bands[1][1], bands[1][2]);
+            }
 
             float outL = 0.0f, outR = 0.0f;
 
@@ -94,10 +111,8 @@ public:
 
                 inputLevelDb[b] = juce::jmax(inputLevelDb[b] - 0.5f, ampDb);
 
-                double atkMs  = (b == 0) ? 10.0 : (b == 1) ? 8.0 : 5.0;
-                double relMs  = (b == 0) ? 100.0 : (b == 1) ? 80.0 : 50.0;
-                double atkC   = std::exp(-1.0 / (atkMs * 0.001 * currentSampleRate));
-                double relC   = std::exp(-1.0 / (relMs * 0.001 * currentSampleRate));
+                double atkC = atkCoeff[b];
+                double relC = relCoeff[b];
 
                 double c = (ampDb > envDb[b]) ? atkC : relC;
                 envDb[b] = c * envDb[b] + (1.0 - c) * ampDb;
@@ -175,6 +190,9 @@ private:
     }
 
     double currentSampleRate = 44100.0;
+
+    double atkCoeff[numBands] = {0.0, 0.0, 0.0};
+    double relCoeff[numBands] = {0.0, 0.0, 0.0};
 
     float depth          = 0.5f;
     float upRatioParam   = 0.6f;
