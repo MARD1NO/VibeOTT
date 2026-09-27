@@ -24,6 +24,13 @@
 
 namespace
 {
+    // Named constants rather than M_PI: MSVC's <cmath> does not define that
+    // macro, and the test sources deliberately include no JUCE header.
+    constexpr double twoPi = 6.28318530717958647692;
+}
+
+namespace
+{
 
 int failures = 0;
 int checks   = 0;
@@ -91,7 +98,7 @@ struct StereoBuffer
     {
         for (int i = 0; i < size(); ++i)
         {
-            const double v = amplitude * std::sin (2.0 * M_PI * hz * (double) i / testSampleRate);
+            const double v = amplitude * std::sin (twoPi * hz * (double) i / testSampleRate);
             left[(size_t) i]  = (float) v;
             right[(size_t) i] = (float) v;
         }
@@ -173,7 +180,7 @@ inline std::pair<float, float> mono (double v)
     input so automation artifacts are not confused with musical transients. */
 inline std::pair<float, float> sine (double hz, double amplitude, int index)
 {
-    return mono (amplitude * std::sin (2.0 * M_PI * hz * (double) index / testSampleRate));
+    return mono (amplitude * std::sin (twoPi * hz * (double) index / testSampleRate));
 }
 
 //==============================================================================
@@ -209,7 +216,7 @@ void testCrossoverReconstruction()
     {
         for (int i = 0; i < 512; ++i)
             block.left[(size_t) i] = block.right[(size_t) i]
-                = (float) (amplitude * std::sin (2.0 * M_PI * frequency * (double) (offset + i) / testSampleRate));
+                = (float) (amplitude * std::sin (twoPi * frequency * (double) (offset + i) / testSampleRate));
 
         engine.process (block.channels(), 2, 512);
 
@@ -218,7 +225,7 @@ void testCrossoverReconstruction()
 
         for (int i = 0; i < 512; ++i)
         {
-            const double in = amplitude * std::sin (2.0 * M_PI * frequency * (double) (offset + i) / testSampleRate);
+            const double in = amplitude * std::sin (twoPi * frequency * (double) (offset + i) / testSampleRate);
             inputSumSq += in * in;
             outputSumSq += (double) block.left[(size_t) i] * block.left[(size_t) i];
         }
@@ -253,7 +260,7 @@ void testUpwardCompressionLiftsQuietSignals()
                 return;
             for (int i = 0; i < n; ++i)
             {
-                const double in = amplitude * std::sin (2.0 * M_PI * 700.0 * (double) (offset + i) / testSampleRate);
+                const double in = amplitude * std::sin (twoPi * 700.0 * (double) (offset + i) / testSampleRate);
                 inputSumSq += in * in;
                 outputSumSq += (double) b.left[(size_t) i] * b.left[(size_t) i];
             }
@@ -359,7 +366,7 @@ void testStereoLinking()
     panned.prepare (testSampleRate, 512, 2);
     panned.setParameters (p);
     runEngine (panned, 48000, 512,
-        [&] (int i) { const double v = amplitude * std::sin (2.0 * M_PI * 500.0 * (double) i / testSampleRate);
+        [&] (int i) { const double v = amplitude * std::sin (twoPi * 500.0 * (double) i / testSampleRate);
                       return std::make_pair (0.0f, (float) v); });
 
     ott::Module centred;
@@ -436,7 +443,7 @@ void testNoZipperOrClicksUnderAutomation()
 
             for (int i = 0; i < blockSize; ++i)
             {
-                const double v = amplitude * std::sin (2.0 * M_PI * 220.0 * (double) (offset + i) / testSampleRate);
+                const double v = amplitude * std::sin (twoPi * 220.0 * (double) (offset + i) / testSampleRate);
                 block.left[(size_t) i]  = (float) v;
                 block.right[(size_t) i] = (float) v;
             }
@@ -484,8 +491,8 @@ void testNoHardClipping()
     double peak = 0.0;
 
     runEngine (engine, 48000, 512,
-        [] (int i) { return mono (0.95 * std::sin (2.0 * M_PI * 110.0 * (double) i / testSampleRate)
-                                  + 0.05 * std::sin (2.0 * M_PI * 3000.0 * (double) i / testSampleRate)); },
+        [] (int i) { return mono (0.95 * std::sin (twoPi * 110.0 * (double) i / testSampleRate)
+                                  + 0.05 * std::sin (twoPi * 3000.0 * (double) i / testSampleRate)); },
         [&] (StereoBuffer& b, int, int) { peak = std::max (peak, b.peak (0)); });
 
     std::printf ("       output peak %.4f\n", peak);
@@ -522,7 +529,7 @@ void testNeutralSettingsAreTransparent()
                 return;
             for (int i = 0; i < n; ++i)
             {
-                const double in = amplitude * std::sin (2.0 * M_PI * 440.0 * (double) (offset + i) / testSampleRate);
+                const double in = amplitude * std::sin (twoPi * 440.0 * (double) (offset + i) / testSampleRate);
                 inputSumSq += in * in;
                 outputSumSq += (double) b.left[(size_t) i] * b.left[(size_t) i];
             }
@@ -559,7 +566,7 @@ void testMonoProcessing()
     {
         for (int i = 0; i < 512; ++i)
         {
-            const double v = amplitude * std::sin (2.0 * M_PI * 330.0 * (double) (offset + i) / testSampleRate);
+            const double v = amplitude * std::sin (twoPi * 330.0 * (double) (offset + i) / testSampleRate);
             monoBlock.left[(size_t) i]  = (float) v;
             monoBlock.right[(size_t) i] = 0.0f; // must stay untouched
             stereoBlock.left[(size_t) i]  = (float) v;
@@ -600,7 +607,7 @@ void testLargeBlockIsChunked()
         {
             for (int i = 0; i < blockSize; ++i)
             {
-                const double v = 0.05 * std::sin (2.0 * M_PI * 500.0 * (double) (offset + i) / testSampleRate);
+                const double v = 0.05 * std::sin (twoPi * 500.0 * (double) (offset + i) / testSampleRate);
                 b.left[(size_t) i]  = (float) v;
                 b.right[(size_t) i] = (float) v;
             }
