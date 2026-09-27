@@ -13,6 +13,14 @@
 #include <algorithm>
 #include <cmath>
 
+/* MSVC's <cmath> does not define M_PI unless _USE_MATH_DEFINES is set before
+   the first math header, and C++ itself only guarantees the value in
+   <numbers>. Defining it here — with a guard, since Apple's and GNU's libc
+   already provide it — keeps the DSP source free of platform #ifdefs. */
+#ifndef M_PI
+ #define M_PI 3.14159265358979323846
+#endif
+
 namespace ott
 {
 
