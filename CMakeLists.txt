@@ -114,6 +114,46 @@ if (VIBEOTT_BUILD_TESTS)
 endif()
 
 #==============================================================================
+# Plugin load test.
+#
+# Loads the built VST3 bundle through JUCE's own VST3 implementation and checks
+# it yields a working, processing AudioProcessor. This is what verifies the
+# shipped artefact on all three platforms; it replaces a shell check that
+# grepped a symbol name out of nm/dumpbin, which could not be verified without a
+# machine of each kind and broke accordingly.
+#   cmake --build <dir> --config Release --target VibeOTTPluginLoadTest
+#   ./build/VibeOTTPluginLoadTest_artefacts/Release/VibeOTTPluginLoadTest <bundle>
+option(VIBEOTT_BUILD_LOAD_TEST "Build the VST3 plugin load test" OFF)
+
+if (VIBEOTT_BUILD_LOAD_TEST)
+    juce_add_console_app(VibeOTTPluginLoadTest PRODUCT_NAME "VibeOTTPluginLoadTest")
+
+    target_sources(VibeOTTPluginLoadTest PRIVATE Source/tests/PluginLoadTest.cpp)
+
+    target_compile_definitions(VibeOTTPluginLoadTest PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_STANDALONE_APPLICATION=1
+        VIBEOTT_PLUGIN_NAME="VibeOTT"
+        # Without this JUCE compiles no VST3 host implementation at all, so the
+        # format manager has nothing to load the bundle with.
+        JUCE_PLUGINHOST_VST3=1
+    )
+
+    target_link_libraries(VibeOTTPluginLoadTest PRIVATE
+        juce::juce_audio_basics
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_gui_basics
+        juce::juce_gui_extra
+        juce::juce_recommended_config_flags
+    )
+
+    # The test cannot run before the plugin it loads exists.
+    add_dependencies(VibeOTTPluginLoadTest VibeOTT_VST3)
+endif()
+
+#==============================================================================
 # Headless editor snapshot tool.
 #
 # Renders the editor to PNG without a host, an audio device or a window server,

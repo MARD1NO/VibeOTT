@@ -22,7 +22,8 @@ VibeOTT/
     │   └── OttModule.h/.cpp          # the engine: routing, smoothing, metering
     ├── tests/
     │   ├── OttTests.cpp              # offline DSP regression tests (no JUCE)
-    │   └── EditorSnapshot.cpp        # headless layout + host-contract checks
+    │   ├── EditorSnapshot.cpp        # headless layout + host-contract checks
+    │   └── PluginLoadTest.cpp        # loads the built VST3 as a host would
     ├── PluginProcessor.h/.cpp        # AudioProcessor, APVTS, legacy state migration
     └── PluginEditor.h/.cpp           # GUI: OTT look, depth ring, band meters
 ```
@@ -58,6 +59,21 @@ ctest --test-dir build --output-on-failure
 every bug this engine was rewritten to fix: silence explosions, startup clicks,
 zipper noise under automation, hard clipping, stereo image collapse, and
 per-channel detector drift. The README has the full symptom → cause → fix table.
+
+The built VST3 is verified by **actually loading it** through JUCE's own VST3
+host implementation (discover, instantiate, process audio, serialise state):
+
+```bash
+cmake -B build -DVIBEOTT_BUILD_LOAD_TEST=ON
+cmake --build build --config Release --target VibeOTTPluginLoadTest
+./build/VibeOTTPluginLoadTest_artefacts/Release/VibeOTTPluginLoadTest <bundle-path>
+```
+
+CI runs exactly this on Windows, macOS and Linux. It replaced an earlier check
+that grepped `GetPluginFactory` out of `nm`/`dumpbin` output: the exported name
+differs per object format, the available tools differ per platform, and that step
+broke on Windows and macOS while passing on Linux. Anything that cannot be
+verified on the platform it runs on should not be a check.
 
 Editor layout and the plugin's host contract (parameter registration, bus
 handling, mono/stereo, one-sample and over-large blocks, state round trip) are
@@ -155,8 +171,10 @@ below upstream's because upstream's numbers assume an int16 pipeline and peak at
 
 1. **DSP tests** on Linux — the gate for everything else.
 2. **Editor + wrapper checks** headless under Xvfb, with snapshots uploaded.
-3. **VST3 builds** on Windows, macOS and Linux, each verifying the bundle really
-   exports `GetPluginFactory` before publishing it as an artefact.
+3. **VST3 builds** on Windows, macOS and Linux. Each one builds `VibeOTT_VST3`,
+   then builds and runs `VibeOTTPluginLoadTest` against the bundle it just
+   produced, and only then publishes it as an artefact. A bundle that a host
+   cannot open fails the build rather than shipping.
 
 ## Known Limitations
 

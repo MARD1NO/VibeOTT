@@ -58,6 +58,22 @@ the failures this engine was rewritten to fix:
 - mono is processed like centred stereo and never writes the second channel,
 - a 4096-sample host block matches a 128-sample one (chunking is transparent).
 
+### Plugin load test
+
+```bash
+cmake -B build -DVIBEOTT_BUILD_LOAD_TEST=ON
+cmake --build build --config Release --target VibeOTTPluginLoadTest
+./build/VibeOTTPluginLoadTest_artefacts/Release/VibeOTTPluginLoadTest \
+    build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+```
+
+Opens the built VST3 through JUCE's own VST3 host implementation, confirms it
+reports a plugin, instantiates it, pushes audio through it and round-trips its
+state. This is what CI uses to verify the shipped artefact on all three
+platforms, because it proves the thing that actually matters — that a host can
+open the file and get a working `AudioProcessor` — with one command and no
+platform-specific tooling.
+
 ### Editor snapshots
 
 ```bash
