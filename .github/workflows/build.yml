@@ -76,14 +76,17 @@ jobs:
             os: windows-latest
             artefact: VibeOTT-windows-vst3
             path: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+            binary: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3/Contents/x86_64-win/VibeOTT.vst3
           - name: macOS VST3
             os: macos-latest
             artefact: VibeOTT-macos-vst3
             path: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+            binary: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3/Contents/MacOS/VibeOTT
           - name: Linux VST3
             os: ubuntu-latest
             artefact: VibeOTT-linux-vst3
             path: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+            binary: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3/Contents/x86_64-linux/VibeOTT.so
 
     steps:
       - uses: actions/checkout@v4
@@ -100,26 +103,29 @@ jobs:
             libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev
 
       - name: Configure
-        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release -DVIBEOTT_BUILD_LOAD_TEST=ON
 
       - name: Build VST3
         run: cmake --build ${{ env.BUILD_DIR }} --config Release --target VibeOTT_VST3
 
-      - name: Verify the plugin exports its factory
+      # Load the bundle the way a host does, rather than grepping a symbol name
+      # out of nm/dumpbin. The exported name differs per object format, the
+      # available tools differ per platform, and a symbol check proves little
+      # anyway -- this actually opens the file and gets an AudioProcessor that
+      # processes audio. One command, three platforms, no toolchain guesswork.
+      - name: Build the plugin load test
+        run: cmake --build ${{ env.BUILD_DIR }} --config Release --target VibeOTTPluginLoadTest
+
+      - name: Check the built VST3 actually loads
         shell: bash
         run: |
           set -euo pipefail
-          plugin="${{ matrix.path }}"
-          test -d "$plugin"
-          binary=$(find "$plugin/Contents" -type f \( -name 'VibeOTT' -o -name 'VibeOTT.so' -o -name 'VibeOTT.vst3' \) | head -1)
-          test -n "$binary"
-          echo "checking $binary"
-          if command -v nm >/dev/null 2>&1; then
-            nm -g "$binary" 2>/dev/null | grep -q GetPluginFactory
-          else
-            strings "$binary" | grep -q GetPluginFactory
+          binary="./${{ env.BUILD_DIR }}/VibeOTTPluginLoadTest_artefacts/Release/VibeOTTPluginLoadTest"
+          if [ ! -x "$binary" ] && [ ! -f "${binary}.exe" ]; then
+            binary="${binary}.exe"
           fi
-          echo "plugin factory present in $binary"
+          test -f "$binary"
+          "$binary" "${{ matrix.path }}"
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
