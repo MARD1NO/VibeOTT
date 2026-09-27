@@ -1,63 +1,168 @@
 # VibeOTT - JUCE Multiband Compressor Plugin
 
-A VST3 audio plugin implementing OTT-style multiband upward/downward compression.
-DSP core reverse-engineered from Xfer OTT via the xtractedott project.
+A VST3 + Standalone three-band upward/downward multiband compressor (the
+"Ableton OTT" sound) built on JUCE.
+
+The DSP is a port of the OTT compressor from Vital (`vital_dsp/compressor.cpp`),
+cross-checked against the scalar-C port in
+[schwung-ottx](https://github.com/legsmechanical/schwung-ottx). The previous
+reverse-engineered core in `Source/MultibandCompressor.h` is gone.
 
 ## Project Structure
 
 ```
 VibeOTT/
-├── CMakeLists.txt              # CMake build config (requires JUCE submodule)
-├── .gitmodules                 # JUCE submodule declaration
-├── .github/workflows/build.yml # CI: Windows VST3 build (manual trigger)
-├── JUCE/                       # JUCE framework (git submodule)
+├── CMakeLists.txt                    # VibeOTTEngine + plugin + test targets
+├── .github/workflows/build.yml       # CI: DSP tests, then Windows/macOS/Linux VST3
+├── JUCE/                             # JUCE framework + VST3 SDK (git submodule)
 └── Source/
-    ├── MultibandCompressor.h   # DSP core: biquad crossover + RMS compression (from xtractedott)
-    ├── PluginProcessor.h/cpp   # JUCE AudioProcessor + APVTS parameters
-    └── PluginEditor.h/cpp      # GUI: dark theme, rotary knobs, band meters
+    ├── dsp/
+    │   ├── OttConfig.h               # tuning constants (bands, timing, limiter)
+    │   ├── OttFilters.h              # Linkwitz-Riley crossover + RMS compressor
+    │   └── OttModule.h/.cpp          # the engine: routing, smoothing, metering
+    ├── tests/
+    │   ├── OttTests.cpp              # offline DSP regression tests (no JUCE)
+    │   └── EditorSnapshot.cpp        # headless layout + host-contract checks
+    ├── PluginProcessor.h/.cpp        # AudioProcessor, APVTS, legacy state migration
+    └── PluginEditor.h/.cpp           # GUI: OTT look, depth ring, band meters
 ```
+
+`Source/dsp/` is deliberately JUCE-free so the test harness can link it directly,
+with no audio device or host involved. Anything the tests cannot reach is a bug
+waiting to happen.
 
 ## Build
 
 ```bash
 git clone --recurse-submodules https://github.com/MARD1NO/VibeOTT.git
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cd VibeOTT
+cmake -B build
 cmake --build build --config Release
 ```
 
-- **Windows**: `build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3`
-- **macOS**: `build/VibeOTT_artefacts/VST3/VibeOTT.vst3`
+- **VST3**: `build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3` (all platforms)
+- **Standalone**: `build/VibeOTT_artefacts/Release/Standalone/`
+
+`--recurse-submodules` matters: JUCE and the VST3 SDK are submodules, and without
+them CMake now fails immediately with the command to fix it rather than failing
+deep inside the plugin build.
+
+## Test
+
+```bash
+cmake --build build --config Release --target VibeOTTTests
+ctest --test-dir build --output-on-failure
+```
+
+`Source/tests/OttTests.cpp` runs in under a second and is the regression net for
+every bug this engine was rewritten to fix: silence explosions, startup clicks,
+zipper noise under automation, hard clipping, stereo image collapse, and
+per-channel detector drift. The README has the full symptom → cause → fix table.
+
+Editor layout and the plugin's host contract (parameter registration, bus
+handling, mono/stereo, one-sample and over-large blocks, state round trip) are
+checked by the snapshot tool:
+
+```bash
+cmake -B build -DVIBEOTT_BUILD_SNAPSHOTS=ON
+cmake --build build --config Release --target VibeOTTSnapshot
+./build/VibeOTTSnapshot_artefacts/Release/VibeOTTSnapshot ui-snapshots
+```
+
+It writes `editor-collapsed.png` and `editor-expanded.png`, and exits non-zero if
+any control overlaps, escapes its panel, or renders a value in the wrong units.
+CI runs it under Xvfb on Linux and uploads the images.
 
 ## Plugin Parameters
 
-All parameters use 0.0-1.0 internal range (matching original OTT VST convention).
+All use the APVTS and are saved with the session. IDs live in `ParameterIDs`
+(`Source/PluginProcessor.h`) and are the plugin's public ABI — do not rename them
+once shipped.
 
 | Parameter | ID | Range | Default |
 |-----------|-----|-------|---------|
-| Depth | DEPTH | 0–1 | 0.5 |
-| Upward Ratio | UPWARD_RATIO | 0–1 | 0.6 |
-| Downward Ratio | DOWNWARD_RATIO | 0–1 | 0.7 |
-| Low Gain | LOW_GAIN | 0–1 | 0.5 |
-| Mid Gain | MID_GAIN | 0–1 | 0.5 |
-| High Gain | HIGH_GAIN | 0–1 | 0.5 |
-| Output Gain | OUTPUT_GAIN | 0–1 | 0.5 |
+| Mix | `MIX` | 0–1 (wet amount) | 1.0 |
+| Depth | `DEPTH` | 0–1 | 1.0 |
+| Upward | `UPWARD` | 0–2 | 1.0 |
+| Downward | `DOWNWARD` | 0–2 | 1.0 |
+| Time | `TIME` | 0–1 | 0.5 |
+| In Gain | `INPUT_GAIN` | −30…+30 dB | 0 dB |
+| Out Gain | `OUTPUT_GAIN` | −30…+30 dB | 0 dB |
+| Behavior | `BEHAVIOR` | −12…+12 dB | 0 dB |
+| Lo / Mid | `LOW_CROSSOVER` | 30 Hz–18 kHz (log) | 120 Hz |
+| Mid / Hi | `HIGH_CROSSOVER` | 30 Hz–18 kHz (log) | 2.5 kHz |
+| `LOW`/`MID`/`HIGH` + `_UP_THRESHOLD` | | −80…0 dB | −35 / −36 / −35 |
+| `_UP_RATIO` | | −1…1 | 0.80 |
+| `_DOWN_THRESHOLD` | | −80…0 dB | −28 / −25 / −30 |
+| `_DOWN_RATIO` | | 0…1 | 0.90 / 0.857 / 1.00 |
+| `_GAIN` | | −30…+30 dB | +13.3 / +8.7 / +13.3 |
 
-## DSP Architecture (from xtractedott)
+`migrateLegacyState` in `PluginProcessor.cpp` translates sessions saved by the
+pre-rewrite plugin (which used a 7-parameter 0–1 set) onto these IDs, so old
+projects keep their Depth, Up/Down, Mix and per-band gains.
 
-- **Crossover**: 6 custom biquad filters (dual LP/HP output), 200 Hz and 2000 Hz split
-- **Compression**: RMS-based detection with log-domain processing
-  - Low band: threshold -20 dB, ratio 2:1, attack 10ms, release 100ms
-  - Mid band: threshold -15 dB, ratio 3:1, attack 8ms, release 80ms
-  - High band: threshold -10 dB, ratio 4:1, attack 5ms, release 50ms
-- **Delay compensation**: 32768-sample look-ahead buffer
-- **Depth**: scales compression via `depth * 0.52 + 1.0` processing gain
-- Band meters show RMS input level and gain reduction per band
+`TIME` drives both the attack and the release envelope coefficient. The engine
+keeps them as two fields, so exposing them independently is a small change if it
+is ever wanted — but there is deliberately only one registered control, because
+two controls writing the same value is how they end up disagreeing.
+
+## DSP Architecture
+
+```
+input gain
+  → 4th-order Linkwitz-Riley split at the low crossover
+  → the high leg is split again at the high crossover into mid / high
+  → per-band dual-envelope RMS compressor (detector linked across channels)
+  → per-band makeup gain
+  → dry/wet mix against the phase-compensated crossover sum
+  → output gain → soft limiter
+```
+
+Key properties, all asserted by tests:
+
+- **Zero latency.** No look-ahead, so nothing to report to the host.
+- **Allocation-free audio path.** The engine bounds its own scratch buffers and
+  chunks any host block larger than `maxChunkSamples`.
+- **5 Hz one-pole smoothing** on every parameter, advanced once per block, plus
+  per-sample ramps for the makeup gain, dry/wet mix and input/output trims. The
+  compressor's *exponent* — where Depth, the Up/Down macros and the per-band
+  ratios all land — is interpolated across the block, starting exactly where the
+  previous block ended. Letting it step is what caused the old zipper noise.
+- **Stereo-linked detection** via the loudest channel, so the image never shifts.
+- **Noise-floor gate** at −120 dB: catches true digital silence without silencing
+  the upward stage on ordinary quiet material. `Behavior` moves it; at −12 dB it
+  is disabled entirely (stock vitOTTx behaviour).
+- **Hysteresis** on the band-collapse decision, so sweeping a crossover across
+  the threshold cannot flip the topology on alternate blocks.
+
+### Divergence from the reference port
+
+`schwung-ottx` derives its Linkwitz-Riley high-pass with the same denominator
+sign as the low-pass. That silently drops the high-pass to Q = 0.5 instead of
+0.707, so the three bands do **not** sum to an allpass and there is a ~3 dB dip at
+each crossover. This implementation uses the correct Butterworth Q for both
+outputs; `testCrossoverReconstruction` asserts the flat magnitude.
+
+The reference's noise floor sits at the 16-bit LSB (−90.3 dB) because it targets
+the Ableton Move, whose audio really does stall at ±1 LSB. A 32-bit float host
+does not, so the floor here is −120 dB, and the per-band makeup gains are 3 dB
+below upstream's because upstream's numbers assume an int16 pipeline and peak at
+0 dBFS RMS on ordinary material.
 
 ## CI
 
-GitHub Actions builds Windows VST3 on manual trigger (workflow_dispatch).
+`.github/workflows/build.yml`:
 
-## Known Issues
+1. **DSP tests** on Linux — the gate for everything else.
+2. **Editor + wrapper checks** headless under Xvfb, with snapshots uploaded.
+3. **VST3 builds** on Windows, macOS and Linux, each verifying the bundle really
+   exports `GetPluginFactory` before publishing it as an artefact.
 
-- JUCE submodule must be added via `git submodule add` on a machine with GitHub access
-- 32768 samples latency (~0.74s at 44.1kHz) due to look-ahead buffer
+## Known Limitations
+
+- The engine runs at the host sample rate. OTT's character comes mostly from the
+  multiband upward compression, but internal oversampling would be a worthwhile
+  addition and is not implemented.
+- The `Time` macro scales the nominal envelope times by `2^(8t − 4)`, i.e. 1/16×
+  to 16×, matching Vital. The per-band base times (2.8/40, 1.4/28, 0.7/15 ms for
+  low/mid/high) are constants in `OttConfig.h`, not parameters.

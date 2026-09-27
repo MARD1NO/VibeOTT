@@ -1,25 +1,130 @@
-name: Build VST3
+name: Build
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# Superseded runs on the same ref are pointless; cancel them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_DIR: build
+
 jobs:
-  build:
-    runs-on: windows-latest
+  # The DSP regression tests run first and alone: they need no GUI, no audio
+  # device and no plugin host, they take a second, and a failure there means the
+  # plugin should not be shipped at all.
+  tests:
+    name: DSP tests
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev \
+            xvfb
 
-      - name: Build
-        run: cmake --build build --config Release
+      - name: Configure
+        run: cmake -B $BUILD_DIR -DCMAKE_BUILD_TYPE=Release -DVIBEOTT_BUILD_SNAPSHOTS=ON
+
+      - name: Build test harnesses
+        run: |
+          cmake --build $BUILD_DIR --config Release --target VibeOTTTests
+          cmake --build $BUILD_DIR --config Release --target VibeOTTSnapshot
+
+      - name: Run DSP tests
+        run: ctest --test-dir $BUILD_DIR --output-on-failure
+
+      # The editor needs a display even to be built and laid out, and the checks
+      # cover the plugin wrapper (parameters, bus handling, state round trip) as
+      # well as the layout, so they are worth running headless under Xvfb.
+      - name: Run editor and wrapper checks
+        run: |
+          xvfb-run --auto-servernum ./$BUILD_DIR/VibeOTTSnapshot_artefacts/Release/VibeOTTSnapshot ui-snapshots
+
+      - name: Upload editor snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-snapshots
+          path: ui-snapshots/
+          if-no-files-found: warn
+          retention-days: 14
+
+  build:
+    name: ${{ matrix.name }}
+    needs: tests
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows VST3
+            os: windows-latest
+            artefact: VibeOTT-windows-vst3
+            path: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+          - name: macOS VST3
+            os: macos-latest
+            artefact: VibeOTT-macos-vst3
+            path: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+          - name: Linux VST3
+            os: ubuntu-latest
+            artefact: VibeOTT-linux-vst3
+            path: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev
+
+      - name: Configure
+        run: cmake -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build VST3
+        run: cmake --build ${{ env.BUILD_DIR }} --config Release --target VibeOTT_VST3
+
+      - name: Verify the plugin exports its factory
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin="${{ matrix.path }}"
+          test -d "$plugin"
+          binary=$(find "$plugin/Contents" -type f \( -name 'VibeOTT' -o -name 'VibeOTT.so' -o -name 'VibeOTT.vst3' \) | head -1)
+          test -n "$binary"
+          echo "checking $binary"
+          if command -v nm >/dev/null 2>&1; then
+            nm -g "$binary" 2>/dev/null | grep -q GetPluginFactory
+          else
+            strings "$binary" | grep -q GetPluginFactory
+          fi
+          echo "plugin factory present in $binary"
 
       - name: Upload VST3
         uses: actions/upload-artifact@v4
         with:
-          name: VibeOTT-win-vst3
-          path: build/VibeOTT_artefacts/Release/VST3/VibeOTT.vst3
+          name: ${{ matrix.artefact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 30
