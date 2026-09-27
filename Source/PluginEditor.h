@@ -65,6 +65,14 @@ public:
     {
         slider.getProperties().set ("knobColour", (juce::int64) colour.getARGB());
     }
+
+    /** Set to true for the Depth knob, which is drawn as a filled ring rather
+        than a stroked arc so it carries the visual weight the old centre
+        display had. */
+    static void setFilledRing (juce::Slider& slider, bool shouldFill)
+    {
+        slider.getProperties().set ("knobFilledRing", shouldFill);
+    }
 };
 
 //==============================================================================
@@ -85,6 +93,16 @@ public:
     /** Called from the editor's timer with a fresh snapshot. */
     void setLevels (const ott::BandLevels& levels);
 
+    /** Feeds the meter a value directly, without the editor's smoothing and
+        without waiting for a timer tick. Used by the snapshot tool to render a
+        meter that is actually doing something. */
+    void setLevelsForDisplay (float inputDb, float gainChangeDb);
+
+    /** Height reserved under the bar for the band name and the numeric
+        gain-change readout. */
+    static constexpr int captionHeight = 13;
+    static constexpr int readoutHeight = 15;
+
 private:
     static constexpr float minimumDb = -60.0f;
     static constexpr float maximumGainReductionDb = 24.0f;
@@ -102,32 +120,11 @@ private:
     float reductionDb = 0.0f;
     float peakDb = minimumDb;
     int   peakHoldCounter = 0;
-};
 
-//==============================================================================
-/** The big central visual: a ring that fills to show the compression depth,
-    with the wet/dry balance drawn as a second, inner arc. Draggable, so it
-    doubles as the Depth control.
-*/
-class DepthDisplay : public juce::Component
-{
-public:
-    explicit DepthDisplay (juce::Slider& depthSliderToDrive);
-
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseDoubleClick (const juce::MouseEvent&) override;
-
-    /** Reads the attached slider, so the display never disagrees with the
-        parameter it is showing. */
-    void refresh();
-
-private:
-    void setDepthFromPosition (juce::Point<int> position);
-
-    juce::Slider& depthSlider;
-    float depth = ott::defaultDepth;
+    /** Shown under the bar. Kept as a value so the readout only repaints when
+        the displayed text actually changes, rather than on every timer tick. */
+    float displayedReductionDb = 0.0f;
+    bool  haveReading = false;
 };
 
 //==============================================================================
@@ -154,6 +151,11 @@ private:
 
     struct Knob
     {
+        /** Height of the caption and readout strips under the dial. Shared with
+            setBoundsWithDial so the dial can be grown without guessing. */
+        static constexpr int captionHeight_ = 15;
+        static constexpr int readoutHeight_ = 15;
+
         juce::Slider slider;
         juce::Label label;    // caption under the dial
         juce::Label readout;  // numeric value, formatted from the parameter
@@ -163,6 +165,11 @@ private:
         /** Lays the knob out in a column, splitting the area into dial, numeric
             readout and caption. */
         void setBounds (juce::Rectangle<int> area);
+
+        /** Lays the knob out centred in `area`, with the dial grown to
+            `preferredDial` where the space allows. Used to make Depth read as
+            the master control rather than just another knob. */
+        void setBoundsWithDial (juce::Rectangle<int> area, int preferredDial);
     };
 
     /** Configures a knob and attaches it to a parameter.
@@ -185,7 +192,6 @@ private:
     Knob inputKnob, outputKnob, behaviorKnob;
     Knob lowCrossoverKnob, highCrossoverKnob;
 
-    std::unique_ptr<DepthDisplay> depthDisplay;
     std::unique_ptr<BandMeter> meters[ott::numBands];
 
     //== advanced (per band detail) ===========================================

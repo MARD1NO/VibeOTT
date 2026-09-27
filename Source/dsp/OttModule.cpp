@@ -484,7 +484,7 @@ void Module::runBand (int band, int numSamples)
     // the upward stage behaves exactly like stock vitOTTx.
     const float floorDb = blockValue[smBehavior] <= behaviorMinDb
                             ? gateDisabled
-                            : silenceFloorDb + blockValue[smBehavior];
+                            : params.silenceFloorDb + blockValue[smBehavior];
 
     float reductionDb = 0.0f;
 

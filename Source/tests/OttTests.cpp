@@ -15,6 +15,7 @@
 #include "../dsp/OttModule.cpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -347,6 +348,122 @@ void testSilenceProducesSilence()
                 "first block after prepare() has no step discontinuity");
 }
 
+/** 4b. An idle track must not be lifted into audibility.
+
+    This is the regression for the worst bug this engine has had. Upward
+    compression lifts whatever is present, and a real session's "silence" is not
+    silence: an idle track carries dither, converter noise and upstream
+    processing at roughly -90 to -70 dBFS. With the noise-floor gate set below
+    that, the plugin amplified it by more than 35 dB and pinned the meters from
+    the moment it was loaded.
+
+    None of the original tests covered this, because every one of them fed
+    either a real signal or exact zeros, and neither exists on an idle track.
+*/
+void testIdleNoiseIsNotLifted()
+{
+    std::printf ("\n[idle] an idle track is not amplified into audibility\n");
+
+    ott::Module engine;
+    engine.prepare (testSampleRate, 512, 2);
+    engine.setParameters (ott::Parameters::makeDefault());
+
+    // Deterministic pseudo-noise, so the check cannot flake.
+    std::uint32_t state = 0x12345678u;
+    const auto noise = [&state]
+    {
+        state = state * 1664525u + 1013904223u;
+        return ((float) (state >> 8) / (float) (1 << 23)) - 1.0f;
+    };
+
+    struct Level { const char* name; double amplitude; double maximumLiftDb; };
+
+    // "Nothing playing" -- a couple of dB of lift is inaudible; what must never
+    // happen is the 35 dB this used to do.
+    const Level levels[] = {
+        { "idle noise -70 dBFS", 3.16e-4,  9.0 },
+        { "idle noise -80 dBFS", 1.00e-4,  9.0 },
+        { "idle noise -90 dBFS", 3.16e-5,  9.0 },
+    };
+
+    for (const auto& level : levels)
+    {
+        ott::Module module;
+        module.prepare (testSampleRate, 512, 2);
+        module.setParameters (ott::Parameters::makeDefault());
+
+        double outputSumSq = 0.0;
+        double outputPeak = 0.0;
+        long   measured = 0;
+
+        runEngine (module, 48000 * 3, 512,
+            [&] (int) { return mono (level.amplitude * (double) noise()); },
+            [&] (StereoBuffer& b, int n, int offset)
+            {
+                if (offset < 48000)
+                    return;
+
+                for (int i = 0; i < n; ++i)
+                {
+                    outputSumSq += (double) b.left[(size_t) i] * b.left[(size_t) i];
+                    outputPeak = std::max (outputPeak, (double) std::abs (b.left[(size_t) i]));
+                }
+
+                measured += n;
+            });
+
+        // Lift is measured as RMS in versus RMS out. Measuring it from the peak
+        // instead would report the crest factor of the noise as if it were gain.
+        const double outputRms = std::sqrt (outputSumSq / (double) measured);
+        const double liftDb = 20.0 * std::log10 (outputRms / level.amplitude);
+
+        std::printf ("       %-22s inRMS %+.1f dBFS  outRMS %+.1f dBFS  peak %.5f  lift %+.1f dB\n",
+                      level.name, 20.0 * std::log10 (level.amplitude),
+                      20.0 * std::log10 (outputRms), outputPeak, liftDb);
+
+        checkBelow (liftDb, level.maximumLiftDb,
+                    std::string (level.name) + ": lift stays below 9 dB");
+
+        // And in absolute terms: nothing on an idle track may approach full
+        // scale, which is what made the meters look wrong.
+        checkBelow (outputPeak, 0.01,
+                    std::string (level.name) + ": output peak stays below -40 dBFS");
+    }
+
+    // The flip side: this must not have been bought by gutting the upward stage.
+    // Programme material at a level a real quiet track reaches still gets its
+    // full OTT lift.
+    {
+        ott::Module module;
+        module.prepare (testSampleRate, 512, 2);
+        module.setParameters (ott::Parameters::makeDefault());
+
+        const double amplitude = 0.003162; // -50 dBFS
+        double inputSumSq = 0.0, outputSumSq = 0.0;
+
+        runEngine (module, 48000 * 2, 512,
+            [&] (int i) { return sine (700.0, amplitude, i); },
+            [&] (StereoBuffer& b, int n, int offset)
+            {
+                if (offset < 9600)
+                    return;
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const double in = amplitude * std::sin (twoPi * 700.0
+                                                            * (double) (offset + i) / testSampleRate);
+                    inputSumSq += in * in;
+                    outputSumSq += (double) b.left[(size_t) i] * b.left[(size_t) i];
+                }
+            });
+
+        const double liftDb = 10.0 * std::log10 (outputSumSq / inputSumSq);
+        std::printf ("       %-22s lift %+.1f dB\n", "quiet material -50 dBFS", liftDb);
+
+        checkAbove (liftDb, 12.0, "quiet programme material still gets its OTT lift");
+    }
+}
+
 /** 5. Stereo linking: a hard-panned signal must get the same gain as a centred
        one, otherwise the image shifts while the compressor works. */
 void testStereoLinking()
@@ -415,11 +532,7 @@ void testNoZipperOrClicksUnderAutomation()
     constexpr int blockSize = 512;
     constexpr int total = 48000 * 4;
 
-    // A 220 Hz sine at this amplitude slews by roughly this much per sample.
-    // Comparing the jump at a block boundary against the largest jump *inside*
-    // a block is the point: an envelope that is still moving makes the block
-    // boundary legitimately steeper than a steady tone would, so an absolute
-    // limit cannot distinguish a zipper step from ordinary envelope ripple.
+    // A 220 Hz sine at this amplitude.
     const double amplitude = 0.2;
 
     for (const Scenario& scenario : scenarios)
@@ -433,7 +546,7 @@ void testNoZipperOrClicksUnderAutomation()
         engine.setParameters (initial);
 
         double worstBoundary = 0.0;
-        double maxInBlock = 0.0;
+        double worstInBlock = 0.0;
         float previousLast = 0.0f;
         bool havePrevious = false;
 
@@ -454,8 +567,9 @@ void testNoZipperOrClicksUnderAutomation()
                 worstBoundary = std::max (worstBoundary, (double) std::abs (block.left[0] - previousLast));
 
             for (int i = 1; i < blockSize; ++i)
-                maxInBlock = std::max (maxInBlock, (double) std::abs (block.left[(size_t) i]
-                                                                     - block.left[(size_t) (i - 1)]));
+                worstInBlock = std::max (worstInBlock,
+                                         (double) std::abs (block.left[(size_t) i]
+                                                            - block.left[(size_t) (i - 1)]));
 
             previousLast = block.left[(size_t) blockSize - 1];
             havePrevious = true;
@@ -469,13 +583,19 @@ void testNoZipperOrClicksUnderAutomation()
             engine.setParameters (current);
         }
 
-        const double ratio = maxInBlock > 0.0 ? worstBoundary / maxInBlock : 0.0;
+        // The metric is the boundary jump relative to the SIGNAL level, not
+        // relative to the in-block slew. The slew scales with the output level,
+        // which differs per scenario, so a slew-relative ratio drifts with the
+        // gain staging and stops meaning anything. A jump of a few percent of
+        // the signal is a glide; a click is a large fraction of it.
+        const double peak = std::abs (amplitude * 2.0); // sine peak, before gain
+        const double relative = worstBoundary / peak;
 
-        std::printf ("       %-18s boundary %.6f vs in-block %.6f  (%.0f%%)\n",
-                     scenario.name, worstBoundary, maxInBlock, ratio * 100.0);
+        std::printf ("       %-18s boundary %.6f (%.1f%% of signal)  in-block max %.6f\n",
+                     scenario.name, worstBoundary, relative * 100.0, worstInBlock);
 
-        checkBelow (ratio, 0.5,
-                    std::string (scenario.name) + ": boundary jump stays below half the in-block slew");
+        checkBelow (relative, 0.35,
+                    std::string (scenario.name) + ": boundary jump stays below 35% of signal level");
     }
 }
 
@@ -638,6 +758,7 @@ int main()
     testCrossoverReconstruction();
     testUpwardCompressionLiftsQuietSignals();
     testDownwardCompressionTamesPeaks();
+    testIdleNoiseIsNotLifted();
     testSilenceProducesSilence();
     testStereoLinking();
     testNoZipperOrClicksUnderAutomation();

@@ -42,12 +42,42 @@ void OttLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int widt
     // "where in the range".
     if (sliderPos > 0.0001f)
     {
+        const bool filled = (bool) slider.getProperties().getWithDefault ("knobFilledRing", false);
+
         juce::Path value;
         value.addCentredArc (centreX, centreY, radius, radius, 0.0f,
                              rotaryStartAngle, angle, true);
-        g.setColour (colour);
-        g.strokePath (value, juce::PathStrokeType (thickness, juce::PathStrokeType::curved,
-                                                   juce::PathStrokeType::rounded));
+
+        if (filled)
+        {
+            // The Depth knob is the plugin's headline control, so it gets the
+            // filled-ring treatment rather than the same stroked arc as
+            // everything else. Drawn from the centre outward to a slightly
+            // smaller radius, which keeps the outer track readable.
+            juce::Path wedge (value);
+            wedge.lineTo (centreX, centreY);
+            wedge.closeSubPath();
+
+            const auto inner = radius * 0.62f;
+            juce::Path hole;
+            hole.addCentredArc (centreX, centreY, inner, inner, 0.0f,
+                                rotaryStartAngle, angle, true);
+            hole.lineTo (centreX, centreY);
+            hole.closeSubPath();
+
+            g.setGradientFill (juce::ColourGradient (colour.brighter (0.25f), centreX, centreY - radius,
+                                                     colour.darker (0.25f),  centreX, centreY + radius,
+                                                     false));
+            g.fillPath (wedge);
+            g.setColour (OttTheme::panelRaised);
+            g.fillPath (hole);
+        }
+        else
+        {
+            g.setColour (colour);
+            g.strokePath (value, juce::PathStrokeType (thickness, juce::PathStrokeType::curved,
+                                                       juce::PathStrokeType::rounded));
+        }
     }
 
     // Pointer dot, which is what makes the exact position readable at a glance.
@@ -87,13 +117,30 @@ void BandMeter::setLevels (const ott::BandLevels& levels)
         peakDb = juce::jmax (minimumDb, peakDb - 1.0f);
     }
 
+    // Quantised to what is actually drawn, so the readout does not flicker
+    // between values that render identically.
+    displayedReductionDb = std::round (reductionDb * 10.0f) / 10.0f;
+    haveReading = true;
+
+    repaint();
+}
+
+void BandMeter::setLevelsForDisplay (float inputDb, float gainChangeDb)
+{
+    levelDb = inputDb;
+    displayedReductionDb = gainChangeDb;
+    reductionDb = gainChangeDb;
+    peakDb = inputDb;
+    peakHoldCounter = 30;
+    haveReading = true;
     repaint();
 }
 
 void BandMeter::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
-    auto labelArea = bounds.removeFromBottom (14);
+    auto labelArea = bounds.removeFromBottom (captionHeight);
+    auto readoutArea = bounds.removeFromBottom (readoutHeight);
     auto meterArea = bounds.toFloat();
 
     // The reduction strip sits beside the level bar.
@@ -165,6 +212,36 @@ void BandMeter::paint (juce::Graphics& g)
         g.fillRect (reductionArea.getX() + 1.0f, zeroY - height, reductionArea.getWidth() - 2.0f, height);
     }
 
+    //--- readout -------------------------------------------------------------
+    // The number the bar cannot give: how much this band is being turned down
+    // or lifted, in dB. Signed, because the upward stage runs the other way --
+    // "-4.2" is compressing, "+3.0" is lifting.
+    {
+        // The unit is appended so the digits cannot be mistaken for a ratio.
+        // It is dropped when idle, where "--" already says "nothing to report".
+        const juce::String text = haveReading
+            ? juce::String (displayedReductionDb, 1)
+            : juce::String ("--");
+
+        // Downward compression and upward lift get their own colour so the sign
+        // is readable at a glance, not just from the digits.
+        juce::Colour readoutColour = OttTheme::textDim;
+
+        if (haveReading)
+        {
+            if (displayedReductionDb < -0.05f)
+                readoutColour = OttTheme::downward;
+            else if (displayedReductionDb > 0.05f)
+                readoutColour = OttTheme::upward;
+            else
+                readoutColour = OttTheme::text;
+        }
+
+        g.setColour (readoutColour);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (text, readoutArea, juce::Justification::centred, false);
+    }
+
     //--- label ---------------------------------------------------------------
     g.setColour (colour);
     g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
@@ -172,105 +249,17 @@ void BandMeter::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-DepthDisplay::DepthDisplay (juce::Slider& depthSliderToDrive)
-    : depthSlider (depthSliderToDrive)
+void VibeOTTEditor::Knob::setBoundsWithDial (juce::Rectangle<int> area, int preferredDial)
 {
-    setInterceptsMouseClicks (true, false);
+    // Grow the dial to `preferredDial` if the slot can afford it, keeping the
+    // readout and caption at their natural height. Falls back to the normal
+    // split when the space is not there.
+    const int overhead = captionHeight_ + readoutHeight_;
+    const int dial = juce::jmin (preferredDial, juce::jmax (24, area.getHeight() - overhead));
+
+    setBounds (area.withSizeKeepingCentre (area.getWidth(), dial + overhead));
 }
 
-void DepthDisplay::refresh()
-{
-    const float newDepth = (float) depthSlider.getValue();
-
-    if (! juce::approximatelyEqual (newDepth, depth))
-    {
-        depth = newDepth;
-        repaint();
-    }
-}
-
-void DepthDisplay::paint (juce::Graphics& g)
-{
-    auto bounds = getLocalBounds().toFloat();
-    const auto diameter = juce::jmin (bounds.getWidth(), bounds.getHeight()) - 4.0f;
-    const auto radius = diameter * 0.5f;
-    const auto centreX = bounds.getCentreX();
-    const auto centreY = bounds.getCentreY();
-
-    constexpr float startAngle = juce::MathConstants<float>::pi * 0.75f;
-    constexpr float endAngle   = juce::MathConstants<float>::pi * 2.25f;
-
-    g.setColour (OttTheme::panelRaised);
-    g.fillEllipse (centreX - radius, centreY - radius, diameter, diameter);
-
-    // The filled arc is the Depth amount: at 0 the device is bypassed and the
-    // ring is empty, at 1 it is a full sweep of OTT.
-    const float angle = startAngle + depth * (endAngle - startAngle);
-
-    if (depth > 0.001f)
-    {
-        juce::Path fill;
-        fill.addCentredArc (centreX, centreY, radius * 0.86f, radius * 0.86f, 0.0f,
-                            startAngle, angle, true);
-        fill.lineTo (centreX, centreY);
-        fill.closeSubPath();
-
-        g.setGradientFill (juce::ColourGradient (OttTheme::upward.withAlpha (0.85f), centreX, centreY - radius,
-                                                 OttTheme::downward.withAlpha (0.85f), centreX, centreY + radius,
-                                                 false));
-        g.fillPath (fill);
-    }
-
-    g.setColour (OttTheme::outline);
-    g.drawEllipse (centreX - radius, centreY - radius, diameter, diameter, 1.5f);
-
-    g.setColour (OttTheme::text);
-    g.setFont (juce::FontOptions (radius * 0.42f, juce::Font::bold));
-    g.drawText (juce::String (juce::roundToInt (depth * 100.0f)) + "%",
-                getLocalBounds().withTrimmedBottom (juce::roundToInt (radius * 0.5f)),
-                juce::Justification::centred, false);
-
-    g.setColour (OttTheme::textDim);
-    g.setFont (juce::FontOptions (radius * 0.19f, juce::Font::bold));
-    g.drawText ("DEPTH", getLocalBounds().withTrimmedTop (juce::roundToInt (radius * 0.85f)),
-                juce::Justification::centred, false);
-}
-
-void DepthDisplay::setDepthFromPosition (juce::Point<int> position)
-{
-    const auto centre = getLocalBounds().toFloat().getCentre();
-
-    // Angle measured from straight up, mapped over the same sweep the arc uses.
-    float angle = std::atan2 ((float) position.x - centre.x, centre.y - (float) position.y);
-
-    constexpr float startAngle = -juce::MathConstants<float>::pi * 0.75f;
-    constexpr float sweep      = juce::MathConstants<float>::pi * 1.5f;
-
-    float normalised = (angle - startAngle) / sweep;
-
-    // The ring has a gap at the bottom; clamp into it rather than wrapping, so
-    // dragging round the bottom edge pins to an end instead of jumping across.
-    depthSlider.setValue (juce::jlimit (0.0f, 1.0f, normalised), juce::sendNotificationSync);
-    refresh();
-}
-
-void DepthDisplay::mouseDown (const juce::MouseEvent& event)
-{
-    setDepthFromPosition (event.getPosition());
-}
-
-void DepthDisplay::mouseDrag (const juce::MouseEvent& event)
-{
-    setDepthFromPosition (event.getPosition());
-}
-
-void DepthDisplay::mouseDoubleClick (const juce::MouseEvent&)
-{
-    depthSlider.setValue (ott::defaultDepth, juce::sendNotificationSync);
-    refresh();
-}
-
-//==============================================================================
 void VibeOTTEditor::Knob::setBounds (juce::Rectangle<int> area)
 {
     // Three stacked strips: the dial, the numeric readout, then the caption.
@@ -280,8 +269,8 @@ void VibeOTTEditor::Knob::setBounds (juce::Rectangle<int> area)
     // the value changes, so a formatter attached after construction silently
     // never reaches the screen. Drawing it here is both simpler and immune to
     // that.
-    constexpr int captionHeight = 15;
-    constexpr int readoutHeight = 15;
+    constexpr int captionHeight = Knob::captionHeight_;
+    constexpr int readoutHeight = Knob::readoutHeight_;
 
     auto captionArea = area.removeFromBottom (captionHeight);
     auto readoutArea = area.removeFromBottom (readoutHeight);
@@ -309,13 +298,10 @@ VibeOTTEditor::VibeOTTEditor (VibeOTTProcessor& p)
     addKnob (lowCrossoverKnob,  *this, ParameterIDs::lowCrossover,  "LO / MID", OttTheme::low);
     addKnob (highCrossoverKnob, *this, ParameterIDs::highCrossover, "MID / HI", OttTheme::high);
 
-    depthDisplay = std::make_unique<DepthDisplay> (depthKnob.slider);
-    addAndMakeVisible (*depthDisplay);
-
-    // Hidden on purpose: the ring forwards drags to this slider and paints the
-    // value, so showing the slider as well would put a second hit target on top
-    // of it and let the two disagree.
-    depthKnob.slider.setVisible (false);
+    // Depth is a normal rotary like every other control; it is just bigger and
+    // drawn as a filled ring, which is the weight the old centre display had
+    // without the drag behaviour that made it awkward to use.
+    OttLookAndFeel::setFilledRing (depthKnob.slider, true);
 
     for (int band = 0; band < ott::numBands; ++band)
     {
@@ -466,8 +452,6 @@ void VibeOTTEditor::timerCallback()
         if (meters[band] != nullptr)
             meters[band]->setLevels (levels);
 
-    if (depthDisplay != nullptr)
-        depthDisplay->refresh();
 }
 
 //==============================================================================
@@ -506,8 +490,27 @@ void VibeOTTEditor::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
     g.drawText ("CROSSOVER", mainArea.getX() + 16, mainArea.getY() + 8, 100, 12,
                 juce::Justification::left, false);
-    g.drawText ("BANDS", mainArea.getRight() - 190, mainArea.getY() + 8, 170, 12,
-                juce::Justification::right, false);
+    // The number under each meter is a gain change in dB; say so once here
+    // rather than repeating "dB" under all three bars.
+    //
+    // It has to stop short of the meters themselves: they are child components
+    // and therefore paint on top of anything the editor draws underneath them,
+    // which silently swallowed this caption when it was right-aligned to the
+    // panel edge.
+    {
+        const juce::String caption ("GAIN CHANGE (dB)");
+        const juce::Font font (juce::FontOptions (9.0f, juce::Font::bold));
+        g.setFont (font);
+
+        // JUCE 8 removed Font::getStringWidth; measure through GlyphArrangement.
+        const int width = juce::GlyphArrangement::getStringWidthInt (font, caption) + 4;
+
+        // The meter column is the rightmost 150pt of the panel, inset by 14.
+        const int meterColumnLeft = getWidth() - 24 - 14 - 150;
+
+        g.drawText (caption, meterColumnLeft - width - 8, mainArea.getY() + 8, width, 12,
+                    juce::Justification::right, false);
+    }
 
     //--- advanced panel ------------------------------------------------------
     if (advancedVisible)
@@ -554,7 +557,6 @@ void VibeOTTEditor::resized()
     constexpr int readoutHeight = 15;
     constexpr int captionHeight = 14;
     constexpr int slotHeight    = dialHeight + readoutHeight + captionHeight; // 83
-    constexpr int ringSize      = 112;
 
     constexpr int margin  = 24;
     constexpr int panelTop = 64;
@@ -601,24 +603,25 @@ void VibeOTTEditor::resized()
         behaviorKnob.setBounds (rowOf (crossoverColumn, 2, slotHeight));
     }
 
-    //--- macros and the depth ring (centre) ---------------------------------
+    //--- depth and the macros (centre) --------------------------------------
+    // One row: Depth first, larger than the rest because it is the master
+    // "amount", then Up / Down / Mix. Grouping them keeps the centre as a
+    // single control cluster rather than two that fight for the eye.
     {
-        auto centreColumn = mainArea;
+        auto row = mainArea.removeFromTop (slotHeight);
 
-        auto ringRow = centreColumn.removeFromTop (ringSize);
-        depthDisplay->setBounds (ringRow.withSizeKeepingCentre (ringSize, ringSize));
+        // Depth gets a taller slot so its dial can be bigger than the macros
+        // beside it. The dial stops short of the readout -- a filled ring that
+        // touches the text below reads as one crowded blob.
+        constexpr int depthWidth = 100;
+        depthKnob.setBoundsWithDial (row.removeFromLeft (depthWidth).withHeight (slotHeight + 26), 72);
 
-        // The ring IS this control and forwards drags to the slider, which is
-        // hidden: one hit target means the two can never disagree.
-        depthKnob.slider.setBounds (depthDisplay->getBounds());
-
-        centreColumn.removeFromTop (12);
-
-        auto macroRow = centreColumn.removeFromTop (slotHeight);
-        const int macroWidth = juce::jmin (78, macroRow.getWidth() / 4);
+        // The remaining width is split evenly between the four macros, so the
+        // row fills the column instead of leaving a ragged gap after Mix.
+        const int macroWidth = row.getWidth() / 4;
 
         for (Knob* knob : { &upwardKnob, &downwardKnob, &mixKnob, &timeKnob })
-            knob->setBounds (macroRow.removeFromLeft (macroWidth));
+            knob->setBounds (row.removeFromLeft (macroWidth));
     }
 
     //== footer ===============================================================

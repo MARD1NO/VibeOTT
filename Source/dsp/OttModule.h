@@ -27,6 +27,12 @@ struct Parameters
     float inGainDb   = 0.0f;
     float outGainDb  = 0.0f;
     float behaviorDb = 0.0f;
+
+    /** Where the upward-expansion gate starts fading in, in dBFS. Anything at
+        or below this level is treated as "nothing playing" and is passed
+        through rather than lifted. See OttConfig.h for why this cannot simply
+        be the 16-bit LSB. */
+    float silenceFloorDb = defaultSilenceFloorDb;
     float lowCrossoverHz  = defaultLowCrossoverHz;
     float highCrossoverHz = defaultHighCrossoverHz;
 

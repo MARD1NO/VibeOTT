@@ -25,7 +25,7 @@ VibeOTT/
     │   ├── EditorSnapshot.cpp        # headless layout + host-contract checks
     │   └── PluginLoadTest.cpp        # loads the built VST3 as a host would
     ├── PluginProcessor.h/.cpp        # AudioProcessor, APVTS, legacy state migration
-    └── PluginEditor.h/.cpp           # GUI: OTT look, depth ring, band meters
+    └── PluginEditor.h/.cpp           # GUI: OTT look, knobs, band meters with dB readout
 ```
 
 `Source/dsp/` is deliberately JUCE-free so the test harness can link it directly,
@@ -85,9 +85,11 @@ cmake --build build --config Release --target VibeOTTSnapshot
 ./build/VibeOTTSnapshot_artefacts/Release/VibeOTTSnapshot ui-snapshots
 ```
 
-It writes `editor-collapsed.png` and `editor-expanded.png`, and exits non-zero if
-any control overlaps, escapes its panel, or renders a value in the wrong units.
-CI runs it under Xvfb on Linux and uploads the images.
+It writes `editor-collapsed.png`, `editor-expanded.png`, `editor-meters.png` and
+`editor-meters-closeup.png`, and exits non-zero if any control overlaps, escapes
+its panel, or renders a value in the wrong units. The meter snapshot drives the
+readouts with fixed values so the digits are rendered rather than all reading
+zero. CI runs it under Xvfb on Linux and uploads the images.
 
 ## Plugin Parameters
 
@@ -145,9 +147,12 @@ Key properties, all asserted by tests:
   ratios all land — is interpolated across the block, starting exactly where the
   previous block ended. Letting it step is what caused the old zipper noise.
 - **Stereo-linked detection** via the loudest channel, so the image never shifts.
-- **Noise-floor gate** at −120 dB: catches true digital silence without silencing
-  the upward stage on ordinary quiet material. `Behavior` moves it; at −12 dB it
-  is disabled entirely (stock vitOTTx behaviour).
+- **Noise-floor gate** at −76 dBFS. Upward compression lifts whatever is
+  present, and an idle DAW track is not silent: it carries −90 to −70 dBFS of
+  dither and converter noise. A gate below that amplifies idle noise into
+  audibility and pins the meters. `Behavior` moves the window; at −12 dB the
+  gate is disabled entirely (stock vitOTTx behaviour). `testIdleNoiseIsNotLifted`
+  covers this.
 - **Hysteresis** on the band-collapse decision, so sweeping a crossover across
   the threshold cannot flip the topology on alternate blocks.
 
@@ -159,11 +164,22 @@ sign as the low-pass. That silently drops the high-pass to Q = 0.5 instead of
 each crossover. This implementation uses the correct Butterworth Q for both
 outputs; `testCrossoverReconstruction` asserts the flat magnitude.
 
-The reference's noise floor sits at the 16-bit LSB (−90.3 dB) because it targets
-the Ableton Move, whose audio really does stall at ±1 LSB. A 32-bit float host
-does not, so the floor here is −120 dB, and the per-band makeup gains are 3 dB
-below upstream's because upstream's numbers assume an int16 pipeline and peak at
-0 dBFS RMS on ordinary material.
+**Upstream has no noise-floor handling at all.** vitOTT/vitOTTx's
+`compressor.cpp` never mentions noise, floors or gates; the only limit on the
+upward stage is `clamp(upper * lower, 0, 32)`. The gate is an addition by this
+plugin and by the Schwung OTTx port. Measured through unmodified upstream, an
+idle track at −70 dBFS is lifted by **+38 dB** (to −36 dBFS) — audible, and it
+pins the meters. That is the bug the gate prevents, and it is why matching the
+reference is not an option for a plugin in a DAW.
+
+The Move port puts its floor at the 16-bit LSB (−90.3 dB) because Move audio
+really does stall at ±1 LSB. A 32-bit float host is the opposite situation: its
+residue sits *higher*, so the floor here is *higher* too (−76 dBFS, fade window
+−70 to −58 dB). A band at −75 dBFS is then not lifted at all, while everything
+from −58 dBFS up stays bit-identical to upstream.
+
+The per-band makeup gains are 3 dB below upstream's because upstream's numbers
+assume an int16 pipeline and peak at 0 dBFS RMS on ordinary material.
 
 ## CI
 

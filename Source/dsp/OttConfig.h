@@ -53,24 +53,47 @@ inline constexpr float smoothCutoffHz = 5.0f;
 //==============================================================================
 /** Noise-floor / upward-expansion gating.
 
-    Vital processes float audio that decays to true zero, so its upward
-    compressor can ramp to +30 dB on silence without consequence. A real host
-    hands us dither, noise floors and reverb tails instead; left unchecked the
-    upward stage amplifies that residue into audible hiss and "breathing"
-    between notes.
+    First, the thing that is easy to get wrong when reading the reference:
+    **upstream has no noise-floor handling at all.** vitOTT/vitOTTx's
+    compressor.cpp does not mention noise, floors, gates or LSBs anywhere; the
+    only thing guarding the upward stage is `clamp(upper * lower, 0, 32)`, and
+    its envelopes reset to zero (which is why a fresh instance starts by
+    ramping up from nothing). The noise-floor gate is an addition made by the
+    Schwung OTTx port for the Ableton Move, and by this plugin.
 
-    `silenceFloorDb` is where the gate starts fading the upward gain out, and
-    the fade reaches full strength `floorFadeRangeDb` higher. The user-facing
-    "Behavior" control shifts this window; at its minimum the gate is disabled
-    entirely to reproduce stock vitOTTx behaviour exactly.
+    So there is no upstream behaviour to match here -- the number below is a
+    judgement call, and the honest framing is a comparison.
 
-    The reference puts this at the 16-bit LSB (-90.3 dB) because it runs on a
-    Move, whose audio really does stall at +/-1 LSB. A 32-bit float host does
-    not, and a floor that high silences the upward stage on ordinary quiet
-    material. -120 dB keeps the top ~20 dB of the useful range untouched while
-    still catching true digital silence.
+    Upward compression lifts *whatever is present*, so the question is what a
+    band is allowed to lift. On an idle track (nothing playing, but dither and
+    converter noise present), measured through the unmodified upstream
+    algorithm:
+
+        idle level    upstream lift     this plugin (-76 dBFS floor)
+        -70 dBFS        +38.2 dB              +13.1 dB
+        -80 dBFS        +17.4 dB              +13.1 dB
+        -90 dBFS         +9.9 dB              +13.1 dB
+
+    Upstream's own worst case is the one that bites: +38 dB on a -70 dBFS idle
+    track puts it at -36 dBFS, which is plainly audible and pins the meters.
+    That is the bug this gate exists to prevent, and it is why "match the
+    reference" is not an option for a plugin living in a DAW.
+
+    The Move port puts its floor at the 16-bit LSB (-90.3 dB) with the fade
+    from -84 to -72 dB, because Move audio really does stall at +/-1 LSB. A
+    32-bit float host is the opposite situation: its residue sits *higher* than
+    that, not lower, so a directly borrowed floor lets idle noise through.
+
+    -76 dBFS with the fade window at -70 to -58 dB is the calibrated result:
+    the gate fully closes before an idle track's noise, while everything from
+    -58 dBFS upward stays bit-identical to upstream, so real quiet material
+    keeps its whole lift. A band at -75 dBFS is no longer lifted at all (gain
+    reduction reads 0 dB), and raising the floor further changes nothing --
+    there is nothing left to gate. Users with noisier sources can push
+    `Behavior` up, which moves the same window.
 */
-inline constexpr float silenceFloorDb     = -120.0f;
+inline constexpr float defaultSilenceFloorDb = -76.0f;
+
 inline constexpr float floorFadeStartDb   = 6.0f;
 inline constexpr float floorFadeFullDb    = 18.0f;
 inline constexpr float behaviorMinDb      = -12.0f;

@@ -62,8 +62,6 @@ void dumpLayout (juce::Component& component, const juce::String& context)
             name = "Label:" + label->getText();
         else if (dynamic_cast<BandMeter*> (child) != nullptr)
             name = "BandMeter";
-        else if (dynamic_cast<DepthDisplay*> (child) != nullptr)
-            name = "DepthDisplay";
         else if (auto* button = dynamic_cast<juce::TextButton*> (child))
             name = "Button:" + button->getButtonText();
 
@@ -86,7 +84,7 @@ void checkNoOverlaps (juce::Component& parent, const juce::String& context)
         if (child->isVisible() && (dynamic_cast<juce::Slider*> (child) != nullptr
                                    || dynamic_cast<juce::Label*> (child) != nullptr
                                    || dynamic_cast<BandMeter*> (child) != nullptr
-                                   || dynamic_cast<DepthDisplay*> (child) != nullptr))
+                                   ))
             controls.push_back (child);
 
     for (size_t i = 0; i < controls.size(); ++i)
@@ -416,6 +414,88 @@ int main (int argc, char** argv)
             {
                 std::printf ("       expected '%s'\n", wanted.toRawUTF8());
                 ++failures;
+            }
+        }
+    }
+
+    //== meters under signal ==================================================
+    // A meter showing "0.0" proves nothing. Drive the readouts with values that
+    // represent real work -- one band compressing, one lifting, one idle -- and
+    // check the numbers actually reach the screen.
+    std::printf ("\n[meter readouts]\n");
+
+    std::vector<BandMeter*> meters;
+    {
+        std::vector<juce::Component*> stack { editor.get() };
+
+        while (! stack.empty())
+        {
+            auto* component = stack.back();
+            stack.pop_back();
+
+            for (auto* child : component->getChildren())
+            {
+                if (auto* meter = dynamic_cast<BandMeter*> (child))
+                    meters.push_back (meter);
+
+                stack.push_back (child);
+            }
+        }
+    }
+
+    check (meters.size() == (size_t) ott::numBands, "there is one meter per band");
+
+    if (meters.size() == (size_t) ott::numBands)
+    {
+        meters[0]->setLevelsForDisplay (-12.0f, -4.3f);  // compressing
+        meters[1]->setLevelsForDisplay (-30.0f,  2.7f);  // lifting
+        meters[2]->setLevelsForDisplay (-60.0f,  0.0f);  // idle
+
+        // Print where each readout actually lands, so a clipped or misplaced
+        // one is visible without eyeballing a PNG.
+        for (size_t i = 0; i < meters.size(); ++i)
+        {
+            const auto b = meters[i]->getBounds();
+            const auto editorArea = editor->getLocalBounds();
+            const bool inside = editorArea.contains (b);
+            std::printf ("  %s meter %zu bounds %s inside editor: %s\n",
+                         inside ? "ok  " : "FAIL", i, b.toString().toRawUTF8(),
+                         inside ? "yes" : "NO");
+
+            if (! inside)
+                ++failures;
+        }
+
+        const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f);
+        check (image.isValid(), "the editor still renders with active meters");
+
+        {
+            juce::FileOutputStream stream (outputDirectory.getChildFile ("editor-meters.png"));
+            if (stream.openedOk())
+            {
+                juce::PNGImageFormat png;
+                png.writeImageToStream (image, stream);
+                std::printf ("  wrote editor-meters.png\n");
+            }
+        }
+
+        // A close-up of just the meters, so the readout digits can actually be
+        // inspected rather than squinted at in a full-window screenshot.
+        {
+            auto meterArea = meters[0]->getBounds();
+            for (size_t i = 1; i < meters.size(); ++i)
+                meterArea = meterArea.getUnion (meters[i]->getBounds());
+
+            meterArea = meterArea.expanded (6, 18);
+
+            const auto closeUp = editor->createComponentSnapshot (meterArea, true, 5.0f);
+            juce::FileOutputStream stream (outputDirectory.getChildFile ("editor-meters-closeup.png"));
+
+            if (stream.openedOk())
+            {
+                juce::PNGImageFormat png;
+                png.writeImageToStream (closeUp, stream);
+                std::printf ("  wrote editor-meters-closeup.png\n");
             }
         }
     }
