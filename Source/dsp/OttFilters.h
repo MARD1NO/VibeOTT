@@ -315,8 +315,25 @@ public:
             // This sample's exponent, in log2(power) units, with no pow() at
             // all: log2 of the ratio each stage asks for, scaled by that stage's
             // amount. The two stages multiply, so their exponents add.
-            const float downLog = std::log2 (ut / henv);
-            const float upLog   = std::log2 (lt / lenv);
+            //
+            // The DIVISOR is floored, not the quotient. `lenv` is only ever
+            // capped at the threshold, never floored, so once a band has been
+            // silent for a while it decays toward zero and eventually goes
+            // denormal (measured: 9.3e-43). `lt / lenv` then overflows to +inf,
+            // and if the noise-floor gate has scaled that stage's ratio to
+            // exactly zero the exponent becomes inf * 0 = NaN. Clamping the
+            // quotient instead does not help: max(inf, x) is still inf. Clamping
+            // the divisor is what keeps the ratio finite.
+            //
+            // A single NaN in the exponent poisons the biquad state through its
+            // recursive output terms, and the plugin then outputs NaN forever --
+            // a latched mute that only removing the plugin clears. The floor
+            // costs nothing: a ratio this extreme is already far past the +30 dB
+            // expansion ceiling the gain is clamped to below.
+            constexpr float minEnvelopePower = 1.0e-20f;
+
+            const float downLog = std::log2 (ut / std::max (henv, minEnvelopePower));
+            const float upLog   = std::log2 (lt / std::max (lenv, minEnvelopePower));
             const float target  = ur * downLog + effectiveUpwardRatio * upLog;
             lastTarget = target;
 

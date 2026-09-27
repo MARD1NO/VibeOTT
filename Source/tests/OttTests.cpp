@@ -464,6 +464,118 @@ void testIdleNoiseIsNotLifted()
     }
 }
 
+/** 4c. A band that has been silent for a long time must not corrupt the engine.
+
+    This is the regression for a latched mute: the plugin would output NaN
+    forever, and only removing it from the host cleared it. That is the worst
+    failure mode a plugin can have, so it gets its own test.
+
+    The cause was a denormal in the upward envelope. Its value is only capped at
+    the band threshold, never floored, so after enough silence it decays into
+    denormal range (9.3e-43 measured). The exponent then needs log2(lt / lenv),
+    and that quotient overflows to +inf; when the noise-floor gate has scaled
+    that stage's ratio to exactly zero, the exponent is inf * 0 = NaN. One NaN
+    in the exponent enters the biquad state through its recursive output terms
+    and never leaves.
+
+    Two details matter for reproducing it: the block must be long enough for the
+    envelope to decay that far, and it must be preceded by signal so the
+    envelope starts high. A short block, or silence from a cold start, does not
+    reach it -- which is why every earlier test missed it.
+*/
+void testLongSilenceDoesNotLatch()
+{
+    std::printf ("\n[silence] a long silent passage must not poison the engine\n");
+
+    for (int blockSize : { 512, 1024, 4096 })
+    {
+        ott::Module engine;
+        engine.prepare (testSampleRate, blockSize, 2);
+        engine.setParameters (ott::Parameters::makeDefault());
+
+        StereoBuffer buf (blockSize);
+        std::uint32_t state = 0xabcdef01u;
+
+        const auto noise = [&state]
+        {
+            state = state * 1664525u + 1013904223u;
+            return ((float) (state >> 8) / (float) (1 << 23)) - 1.0f;
+        };
+
+        bool sawNonFinite = false;
+        int  firstBadBlock = -1;
+        int  blockIndex = 0;
+
+        // Phase 0: signal, so the envelopes are somewhere realistic.
+        // Phases 1-2: a long silence, which is where the decay happens.
+        // Phase 3: signal again -- the engine must still pass audio.
+        for (int phase = 0; phase < 4; ++phase)
+        {
+            for (int blk = 0; blk < 60; ++blk, ++blockIndex)
+            {
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    double v = 0.0;
+
+                    if (phase == 0)
+                        v = 0.2 * (double) noise();
+                    else if (phase == 3)
+                        v = 0.9 * std::sin (twoPi * 1000.0
+                                            * (double) (blk * blockSize + i) / testSampleRate);
+
+                    buf.left[(size_t) i]  = (float) v;
+                    buf.right[(size_t) i] = (float) v;
+                }
+
+                engine.process (buf.channels(), 2, blockSize);
+
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    if (! std::isfinite (buf.left[(size_t) i])
+                        || ! std::isfinite (buf.right[(size_t) i]))
+                    {
+                        if (! sawNonFinite)
+                        {
+                            sawNonFinite = true;
+                            firstBadBlock = blockIndex;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (sawNonFinite)
+            std::printf ("       block %d: first non-finite output at block %d\n",
+                         blockSize, firstBadBlock);
+
+        check (! sawNonFinite,
+               "block " + std::to_string (blockSize)
+                   + ": no NaN or Inf across noise, long silence and signal again");
+
+        // And it must still pass audio, not just avoid NaN.
+        double outputPeak = 0.0;
+
+        for (int blk = 0; blk < 8; ++blk)
+        {
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const float v = (float) (0.3 * std::sin (twoPi * 1000.0
+                                                         * (double) (blk * blockSize + i) / testSampleRate));
+                buf.left[(size_t) i]  = v;
+                buf.right[(size_t) i] = v;
+            }
+
+            engine.process (buf.channels(), 2, blockSize);
+
+            for (int i = 0; i < blockSize; ++i)
+                outputPeak = std::max (outputPeak, (double) std::abs (buf.left[(size_t) i]));
+        }
+
+        checkAbove (outputPeak, 1.0e-4,
+                    "block " + std::to_string (blockSize) + ": audio still passes after silence");
+    }
+}
+
 /** 5. Stereo linking: a hard-panned signal must get the same gain as a centred
        one, otherwise the image shifts while the compressor works. */
 void testStereoLinking()
@@ -759,6 +871,7 @@ int main()
     testUpwardCompressionLiftsQuietSignals();
     testDownwardCompressionTamesPeaks();
     testIdleNoiseIsNotLifted();
+    testLongSilenceDoesNotLatch();
     testSilenceProducesSilence();
     testStereoLinking();
     testNoZipperOrClicksUnderAutomation();

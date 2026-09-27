@@ -153,6 +153,11 @@ Key properties, all asserted by tests:
   audibility and pins the meters. `Behavior` moves the window; at −12 dB the
   gate is disabled entirely (stock vitOTTx behaviour). `testIdleNoiseIsNotLifted`
   covers this.
+- **Envelope power is floored** at 1e-20 before the `log2(threshold / envelope)`
+  in the compressor's exponent. Without it, a band that has been silent long
+  enough decays into denormal range, the quotient overflows to +inf, and if the
+  noise-floor gate has zeroed that stage's ratio the exponent is `inf * 0` =
+  NaN — which then poisons the biquad state permanently. `testLongSilenceDoesNotLatch`.
 - **Hysteresis** on the band-collapse decision, so sweeping a crossover across
   the threshold cannot flip the topology on alternate blocks.
 
