@@ -161,6 +161,15 @@ Key properties, all asserted by tests:
 - **Hysteresis** on the band-collapse decision, so sweeping a crossover across
   the threshold cannot flip the topology on alternate blocks.
 
+### Crossover corners
+
+`omega_0 = 2*pi*fc/fs`. The factor of 2 is easy to drop and impossible to notice
+in the allpass test, because a uniformly shifted crossover is still a flat
+allpass — the reconstruction stays perfect while every corner sits an octave low.
+That made the plugin several dB louder than upstream with a 6 dB low-band lift.
+`testCrossoverCutoffIsCorrect` pins the corner against theory (−6 dB at the
+corner, −24 dB one octave up) so it cannot regress.
+
 ### Divergence from the reference port
 
 `schwung-ottx` derives its Linkwitz-Riley high-pass with the same denominator

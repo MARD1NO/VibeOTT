@@ -75,7 +75,14 @@ public:
         // the high-pass to Q = 0.5, and the three bands no longer sum to an
         // allpass: there is a ~3 dB dip at every crossover, which changes the
         // sound and makes the fully-dry path not transparent.
-        const float omega = float (M_PI) * hz / (float) sampleRate; // pi * fc / fs
+        //
+        // omega_0 = 2 * pi * fc / fs. Dropping the 2 halves the cutoff, which is
+        // emphatically not a subtle difference: every crossover lands an octave
+        // low, so a 120 Hz split behaves like 60 Hz, the low band is 6 dB down
+        // where it should be flat, and far more energy leaks into the mid. That
+        // shows up as the plugin being several dB louder overall and much
+        // heavier in the low end than upstream.
+        const float omega = 2.0f * float (M_PI) * hz / (float) sampleRate;
         const float cosw  = std::cos (omega);
         const float sinw  = std::sin (omega);
         const float alpha = sinw / (2.0f * q);

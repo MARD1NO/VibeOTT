@@ -236,6 +236,67 @@ void testCrossoverReconstruction()
                "crossover sum preserves magnitude (allpass)");
 }
 
+/** 1b. The crossover must sit where it is told to.
+
+    This exists because the coefficient formula once omitted the 2 in
+    omega_0 = 2*pi*fc/fs, which halved every cutoff: a 120 Hz split behaved like
+    60 Hz, the low band was 6 dB down where it should have been flat, and far
+    more energy leaked into the mid. The plugin ended up several dB louder than
+    upstream and much heavier in the low end.
+
+    The allpass test above cannot catch that: a uniformly shifted crossover is
+    still a perfectly good allpass, so the reconstruction stays flat. Only
+    checking the corner against theory catches it.
+*/
+void testCrossoverCutoffIsCorrect()
+{
+    std::printf ("\n[crossover] each stage is a 4th-order Linkwitz-Riley at its corner\n");
+
+    // A 4th-order Linkwitz-Riley low-pass is two cascaded 2nd-order Butterworth
+    // sections. At the corner the pair is exactly -6 dB, and one octave up it is
+    // 24 dB down (4th order = 24 dB/octave). Those two points pin the corner
+    // frequency, which a 2x error in omega_0 would fail outright.
+    const double corner = 2500.0;
+
+    const auto lowPassGainDb = [corner] (double frequency)
+    {
+        ott::LinkwitzRiley filter;
+        filter.prepare (testSampleRate);
+        filter.setCutoff ((float) corner);
+
+        double inputSumSq = 0.0, outputSumSq = 0.0;
+
+        // Settle first: the filter's own start-up transient is not part of its
+        // steady-state response.
+        for (int i = 0; i < (int) (testSampleRate * 4); ++i)
+        {
+            float low = 0.0f, high = 0.0f;
+            filter.process ((float) std::sin (twoPi * frequency * (double) i / testSampleRate),
+                            low, high);
+
+            if (i > (int) (testSampleRate * 3))
+            {
+                const double in = std::sin (twoPi * frequency * (double) i / testSampleRate);
+                inputSumSq += in * in;
+                outputSumSq += (double) low * low;
+            }
+        }
+
+        return 10.0 * std::log10 (outputSumSq / inputSumSq);
+    };
+
+    const double atCorner = lowPassGainDb (corner);
+    const double octaveUp = lowPassGainDb (corner * 2.0);
+    const double decadeDown = lowPassGainDb (corner * 0.1);
+
+    std::printf ("       at %.0f Hz: %+.2f dB   (one octave up: %+.2f dB, decade down: %+.2f dB)\n",
+                 corner, atCorner, octaveUp, decadeDown);
+
+    checkNear (atCorner, -6.0, 0.5, "the low-pass is -6 dB at its corner");
+    checkBelow (octaveUp, -20.0, "it rolls off steeply one octave above the corner");
+    checkAbove (decadeDown, -0.5, "it is flat a decade below the corner");
+}
+
 /** 2. Input below the upward threshold must come out louder. */
 void testUpwardCompressionLiftsQuietSignals()
 {
@@ -286,8 +347,19 @@ void testDownwardCompressionTamesPeaks()
 
     engine.setParameters (p);
 
+    // Broadband, so every band actually carries energy. A single tone cannot do
+    // that once the crossovers are correct: with the split at 120 Hz and
+    // 2.5 kHz, a 900 Hz sine belongs to the mid band alone. An earlier version
+    // of this test used one tone and only passed because the crossovers were an
+    // octave low, which leaked it into two bands.
     runEngine (engine, 48000, 512,
-        [] (int i) { return sine (900.0, 0.7, i); });
+        [] (int i)
+        {
+            const double v = 0.7 * (0.6 * std::sin (twoPi * 60.0   * (double) i / testSampleRate)
+                                  + 0.6 * std::sin (twoPi * 900.0  * (double) i / testSampleRate)
+                                  + 0.6 * std::sin (twoPi * 6000.0 * (double) i / testSampleRate)) / 1.8;
+            return mono (v);
+        });
 
     const ott::BandLevels& levels = engine.getBandLevels();
 
@@ -307,7 +379,7 @@ void testDownwardCompressionTamesPeaks()
     }
 
     check (anyReduction, "at least one band reports gain reduction on a hot signal");
-    check (reducedBands >= 2, "more than one band reacts to a full-range hot signal");
+    check (reducedBands >= 2, "a broadband signal is compressed in more than one band");
 }
 
 /** 4. Silence in stays silence out, and no cold start explodes. */
@@ -825,39 +897,67 @@ void testLargeBlockIsChunked()
 {
     std::printf ("\n[blocksize] over-large host blocks are chunked transparently\n");
 
+    // Enough audio that the two renders overlap almost entirely after the
+    // transient is skipped. The total length is fixed, so each render is split
+    // into however many blocks of that size it takes -- which is the point: the
+    // same span of audio, chopped differently.
+    constexpr int totalSamples = 24000;
+
     const ott::Parameters p = ott::Parameters::makeDefault();
 
-    const auto render = [&p] (int blockSize) {
+    // Render the SAME span of audio at each block size and compare the whole
+    // stream. Comparing one arbitrary block is not a sound test: with different
+    // block sizes a single block lands at a different point in the signal, and
+    // the filter's start-up transient makes those two windows differ for reasons
+    // that have nothing to do with chunking.
+    const auto render = [&p] (int blockSize, std::vector<float>& out)
+    {
         ott::Module engine;
         engine.prepare (testSampleRate, blockSize, 2);
         engine.setParameters (p);
 
         StereoBuffer b (blockSize);
-        double sumSq = 0.0;
+        out.assign ((size_t) totalSamples, 0.0f);
 
-        for (int offset = 0; offset < 24000; offset += blockSize)
+        for (int offset = 0; offset < totalSamples; offset += blockSize)
         {
             for (int i = 0; i < blockSize; ++i)
             {
-                const double v = 0.05 * std::sin (twoPi * 500.0 * (double) (offset + i) / testSampleRate);
+                const double v = 0.2 * std::sin (twoPi * 500.0
+                                                 * (double) (offset + i) / testSampleRate);
                 b.left[(size_t) i]  = (float) v;
                 b.right[(size_t) i] = (float) v;
             }
 
             engine.process (b.channels(), 2, blockSize);
+
+            const int n = std::min (blockSize, totalSamples - offset);
+
+            for (int i = 0; i < n; ++i)
+                out[(size_t) (offset + i)] = b.left[(size_t) i];
         }
-
-        for (int i = 0; i < blockSize; ++i)
-            sumSq += (double) b.left[(size_t) i] * b.left[(size_t) i];
-
-        return std::sqrt (sumSq / blockSize);
     };
 
-    const double small = render (128);
-    const double large = render (4096);
+    std::vector<float> small, large;
+    render (128, small);
+    render (4096, large);
 
-    checkNear (large, small, 0.02 * std::max (small, 1.0e-6),
-               "a 4096-sample block matches a 128-sample block");
+    check (small.size() == large.size(), "both renders cover the same span of audio");
+
+    // Skip the first 10 ms: the filter transient really is sampled differently at
+    // different block sizes, so including it would compare apples to oranges.
+    const size_t skip = (size_t) (testSampleRate * 0.01);
+
+    double smallE = 0.0, largeE = 0.0;
+
+    for (size_t i = skip; i < small.size(); ++i)
+    {
+        smallE += (double) small[i] * small[i];
+        largeE += (double) large[i] * large[i];
+    }
+
+    checkNear (std::sqrt (largeE / smallE), 1.0, 0.01,
+               "a 4096-sample block renders the same audio as a 128-sample block");
 }
 
 } // namespace
@@ -868,6 +968,7 @@ int main()
     std::printf ("VibeOTT DSP tests (%.0f Hz)\n", testSampleRate);
 
     testCrossoverReconstruction();
+    testCrossoverCutoffIsCorrect();
     testUpwardCompressionLiftsQuietSignals();
     testDownwardCompressionTamesPeaks();
     testIdleNoiseIsNotLifted();
